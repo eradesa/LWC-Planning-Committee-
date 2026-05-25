@@ -1,9 +1,22 @@
 import sqlite3
 import os
+import sys
 from datetime import date, datetime, timedelta
 from calendar import monthcalendar
 
-DB_PATH = os.environ.get("CHMS_DB_PATH") or os.path.join(os.path.dirname(__file__), "chms.db")
+
+def get_data_dir():
+    base = os.environ.get("CHMS_DATA_DIR")
+    if not base:
+        if sys.platform == "win32":
+            base = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ChMS")
+        else:
+            base = os.path.join(os.path.expanduser("~"), ".chms")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+DB_PATH = os.environ.get("CHMS_DB_PATH") or os.path.join(get_data_dir(), "chms.db")
 
 TASK_STATUSES = ["open", "in_progress", "completed", "on_hold", "suspended"]
 TASK_PRIORITIES = ["low", "medium", "high", "critical"]

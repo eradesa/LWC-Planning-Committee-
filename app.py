@@ -26,9 +26,13 @@ from models import (
     get_events, get_event, add_event, update_event, delete_event,
     get_calendar_entries, get_upcoming_schedule,
     TASK_STATUSES, TASK_PRIORITIES, RECURRING_TYPES, TYPE_FLAGS,
+    DB_PATH, get_data_dir,
 )
 
-app = Flask(__name__)
+base_path = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
+app = Flask(__name__,
+    template_folder=os.path.join(base_path, 'templates'),
+    static_folder=os.path.join(base_path, 'static'))
 app.secret_key = "chms-secret-key"
 
 LAST_RECURRENCE_CHECK = None
@@ -546,9 +550,21 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    # Auto-seed on first run (check if members table is empty)
+    from models import get_conn
+    conn = get_conn()
+    needs_seed = conn.execute("SELECT COUNT(*) AS c FROM members").fetchone()["c"] == 0
+    conn.close()
+    if needs_seed:
+        print("First run — seeding database...")
+        import seed
+        seed.seed()
+        print("Database seeded successfully.")
+
     if not os.environ.get("WERKZEUG_RUN_MAIN"):
         Timer(1.5, open_browser).start()
     port = int(os.environ.get("PORT", 5000))
     print(f"ChMS(prototype) starting at http://127.0.0.1:{port}")
+    print(f"Data directory: {get_data_dir()}")
     print("Close terminal or press Ctrl+C to stop.")
     app.run(host="127.0.0.1", port=port, debug=False)

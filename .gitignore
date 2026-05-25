@@ -5,3 +5,8 @@ test_chms.db
 .~lock.*
 Untitled*
 *.ods
+*.exe
+*.spec
+dist/
+build/
+
