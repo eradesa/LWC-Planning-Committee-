@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-header">
-    <h2>{{ category.name }}</h2>
+    <h2>{{ category.name }}{% if status %} — {{ status }}{% endif %}</h2>
     <div>
         <a href="{{ url_for('sub_program_add' ) }}" class="btn btn-primary">+ Add Sub-Program</a>
-        <a href="{{ url_for('programs_landing') }}" class="btn btn-outline">All Programs</a>
+        <a href="{{ url_for('programs_landing', status=status) if status else url_for('programs_landing') }}" class="btn btn-outline">All Programs</a>
+        {% if status %}<a href="{{ url_for('program_category', cat_id=category.id) }}" class="btn btn-outline">Clear Filter</a>{% endif %}
     </div>
 </div>
 

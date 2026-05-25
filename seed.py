@@ -1,26 +1,41 @@
 """
-Seed the database with data from sub-programs.xlsx plus members and reasonable defaults.
+Seed the database with data from seed_data.json plus members and reasonable defaults.
 Run: python3 seed.py
 """
 import sys
 import os
+import json
 from datetime import date, timedelta
-import openpyxl
 
 sys.path.insert(0, os.path.dirname(__file__))
 from models import (
     add_member, add_program_category, add_sub_program, add_sub_program_member,
     add_task, add_event, get_members, get_program_categories,
     get_conn, init_db, set_config,
+    add_user, get_user_by_email, get_user_by_username,
 )
 
-XLSX_PATH = os.path.join(os.path.dirname(__file__), "sub-programs.xlsx")
+JSON_PATH = os.path.join(os.path.dirname(__file__), "seed_data.json")
 
 
 def seed():
-    print("Seeding database from sub-programs.xlsx ...")
+    print("Seeding database from seed_data.json ...")
 
     init_db()
+
+    # ── Admin user ──
+    admin_pw = os.environ.get("CHMS_ADMIN_PASSWORD", "qazcde@123")
+    if not get_user_by_email("admin@livingway.church"):
+        add_user("admin", "admin@livingway.church", admin_pw, "admin", "Administrator", 1)
+        print("  Created admin user (admin@livingway.church)")
+    else:
+        from werkzeug.security import generate_password_hash
+        conn = get_conn()
+        conn.execute("UPDATE users SET password_hash=?, is_approved=1 WHERE email='admin@livingway.church'",
+                     (generate_password_hash(admin_pw),))
+        conn.commit()
+        conn.close()
+        print("  Admin password reset via env")
 
     # ── Members (from old Admin & Maintenance sheet knowledge) ──
     members_data = [
@@ -55,9 +70,12 @@ def seed():
     cat_map = {c["name"].strip().lower(): c["id"] for c in cats}
     print(f"  Created {len(cats)} program categories")
 
-    # ── Read Excel ──
-    wb = openpyxl.load_workbook(XLSX_PATH, data_only=True)
-    ws = wb.active
+    # ── Read JSON ──
+    json_path = JSON_PATH
+    if hasattr(sys, "_MEIPASS"):
+        candidate = os.path.join(sys._MEIPASS, "seed_data.json")
+        if os.path.exists(candidate):
+            json_path = candidate
 
     today = date.today()
     next_sunday = today + timedelta(days=(6 - today.weekday()))
@@ -67,7 +85,8 @@ def seed():
     sub_programs_created = 0
     tasks_created = 0
 
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    with open(json_path, "r") as f:
+        rows = json.load(f)
     for row in rows:
         category_name = str(row[0]).strip() if row[0] else ""
         row_type = str(row[1]).strip() if row[1] else ""
@@ -146,7 +165,6 @@ def seed():
             )
             tasks_created += 1
 
-    wb.close()
     print(f"  Created {sub_programs_created} sub-programs")
     print(f"  Created {tasks_created} tasks")
 

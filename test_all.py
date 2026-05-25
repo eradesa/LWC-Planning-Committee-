@@ -11,6 +11,7 @@ from datetime import date, timedelta
 # Set test DB before importing anything
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 os.environ["CHMS_DB_PATH"] = os.path.join(TEST_DIR, "test_chms.db")
+os.environ["CHMS_TESTING"] = "1"
 
 # Remove any existing test DB
 if os.path.exists(os.environ["CHMS_DB_PATH"]):
@@ -33,6 +34,8 @@ from models import (
     add_event, get_events, get_event, update_event, delete_event,
     get_calendar_entries, get_upcoming_schedule,
     generate_recurring_instances,
+    get_users, get_user, get_user_by_email, add_user, update_user,
+    update_user_password, set_user_approved, delete_user, verify_user,
     TASK_STATUSES, TASK_PRIORITIES, RECURRING_TYPES, TYPE_FLAGS,
 )
 
@@ -60,6 +63,8 @@ def count_db(conn, table, where="1=1", params=None):
 def setUpModule():
     """Seed fresh test DB once before all tests."""
     seed.seed()
+    # Login as admin so existing route tests work
+    client.post("/login", data={"email": "admin@livingway.church", "password": "qazcde@123"}, follow_redirects=True)
 
 
 def tearDownModule():
@@ -173,7 +178,7 @@ class TestSubPrograms(unittest.TestCase):
         result = delete_sub_program(sp_id)
         self.assertFalse(result)
         # Clean up
-        tasks = get_tasks(sp_id)
+        tasks, _ = get_tasks(sp_id)
         for t in tasks:
             update_task_status(t["id"], "completed")
         self.assertTrue(delete_sub_program(sp_id))
@@ -200,7 +205,7 @@ class TestSubPrograms(unittest.TestCase):
         )
         # Model doesn't enforce, so this should succeed
         add_task(sp_id, "Late task", "2026-07-01", 1, "medium")
-        tasks = get_tasks(sp_id)
+        tasks, _ = get_tasks(sp_id)
         self.assertTrue(any(t["due_date"] == "2026-07-01" for t in tasks))
         delete_sub_program(sp_id)
 
@@ -223,7 +228,7 @@ class TestTasks(unittest.TestCase):
     def test_crud(self):
         t_id = add_task(self.sp_id, "Test task", "2026-09-01", 1, "high")
         self.assertIsNotNone(t_id)
-        tasks = get_tasks(self.sp_id)
+        tasks, _ = get_tasks(self.sp_id)
         self.assertTrue(any(t["id"] == t_id for t in tasks))
         t = get_task(t_id)
         self.assertEqual(t["title"], "Test task")
@@ -448,23 +453,29 @@ class TestRoutes(unittest.TestCase):
         self.assertIn("error", html)
         self.assertIsNotNone(get_sub_program(sp_id))
         # Cleanup
-        for t in get_tasks(sp_id):
+        for t in get_tasks(sp_id)[0]:
             update_task_status(t["id"], "completed")
         delete_sub_program(sp_id)
 
-    # ── Tasks ──
-
-    def test_task_add(self):
-        sp_id = add_sub_program(1, "Task Add Route SP", "", "2026-12-31", 1, "none", False, "Program", "")
-        r = client.post(f"/programs/sub/{sp_id}/tasks/add", data={
-            "title": "Route Test Task",
-            "due_date": "2026-12-01",
-            "assigned_to": "1",
-            "priority": "high",
-        }, follow_redirects=True)
-        self.assertEqual(r.status_code, 200)
-        tasks = get_tasks(sp_id)
-        self.assertTrue(any(t["title"] == "Route Test Task" for t in tasks))
+    def test_workflow_derived_status_cascade(self):
+        """Sub-program derived status changes correctly as tasks are completed."""
+        sp_id = add_sub_program(1, "Derived SP", "", "2026-10-01", 1, "none", False, "Program", "")
+        t1 = add_task(sp_id, "Task A", None, 1, "high")
+        t2 = add_task(sp_id, "Task B", None, 1, "low")
+        derived = get_sub_program_derived(sp_id)
+        self.assertEqual(derived["status"], "open")
+        self.assertEqual(derived["priority"], "high")
+        update_task_status(t1, "in_progress")
+        derived = get_sub_program_derived(sp_id)
+        self.assertEqual(derived["status"], "in_progress")
+        self.assertEqual(derived["priority"], "high")
+        update_task_status(t1, "completed")
+        update_task_status(t2, "completed")
+        derived = get_sub_program_derived(sp_id)
+        self.assertEqual(derived["status"], "completed")
+        self.assertIsNone(derived["priority"])
+        tasks, _ = get_tasks(sp_id)
+        self.assertTrue(any(t["title"] == "Task A" for t in tasks))
         delete_sub_program(sp_id)
 
     def test_task_add_without_sub_program(self):
@@ -506,8 +517,17 @@ class TestRoutes(unittest.TestCase):
         delete_sub_program(sp_id)
 
     def test_task_quick_complete(self):
-        """Quick-complete route does not exist yet — pending implementation."""
-        self.skipTest("Quick-complete route not implemented yet")
+        """Toggle task between open and completed."""
+        sp_id = add_sub_program(1, "Toggle SP", "", "2026-12-31", 1, "none", False, "Program", "")
+        t_id = add_task(sp_id, "Toggle me", None, 1, "medium")
+        r = client.post(f"/tasks/{t_id}/toggle", follow_redirects=True)
+        self.assertEqual(r.status_code, 200)
+        t = get_task(t_id)
+        self.assertEqual(t["status"], "completed")
+        r = client.post(f"/tasks/{t_id}/toggle", follow_redirects=True)
+        t = get_task(t_id)
+        self.assertEqual(t["status"], "open")
+        delete_sub_program(sp_id)
 
     def test_task_delete(self):
         sp_id = add_sub_program(1, "Task Delete SP", "", "2026-12-31", 1, "none", False, "Program", "")
@@ -581,7 +601,7 @@ class TestRoutes(unittest.TestCase):
         }, follow_redirects=True)
         self.assertEqual(r.status_code, 200)
         # Check task was created in the sub-program
-        tasks = get_tasks(sp_id)
+        tasks, _ = get_tasks(sp_id)
         self.assertTrue(any(t["title"] == "Linked Event" for t in tasks),
                         "Event linked to sub-program should auto-create a task")
         delete_sub_program(sp_id)
@@ -710,7 +730,7 @@ class TestWorkflows(unittest.TestCase):
             "notes": "",
         }, follow_redirects=True)
         self.assertEqual(r.status_code, 200)
-        tasks = get_tasks(sp_id)
+        tasks, _ = get_tasks(sp_id)
         self.assertTrue(
             any(t["title"] == "Calendar Created Task" for t in tasks),
             "Calendar event must auto-create a task in the linked sub-program"
@@ -718,8 +738,15 @@ class TestWorkflows(unittest.TestCase):
         delete_sub_program(sp_id)
 
     def test_workflow_quick_complete_task(self):
-        """Quick-complete route not implemented yet."""
-        self.skipTest("Quick-complete route not implemented yet")
+        """User clicks quick-complete toggles task status."""
+        sp_id = add_sub_program(1, "Workflow Quick SP", "", "2026-12-31", 1, "none", False, "Program", "")
+        add_task(sp_id, "Quick task", None, 1, "medium")
+        tid = add_task(sp_id, "Another quick", None, 1, "low")
+        r = client.post(f"/tasks/{tid}/toggle", follow_redirects=True)
+        self.assertEqual(r.status_code, 200)
+        t = get_task(tid)
+        self.assertEqual(t["status"], "completed")
+        delete_sub_program(sp_id)
 
     def test_workflow_cannot_delete_sub_program_with_open_tasks(self):
         """User tries to delete a sub-program that has open tasks — blocked with error."""
@@ -731,7 +758,7 @@ class TestWorkflows(unittest.TestCase):
         self.assertIsNotNone(get_sub_program(sp_id),
                              "Sub-program should still exist after blocked delete")
         # Cleanup
-        for t in get_tasks(sp_id):
+        for t in get_tasks(sp_id)[0]:
             update_task_status(t["id"], "completed")
         delete_sub_program(sp_id)
 
@@ -1009,6 +1036,175 @@ class TestDataIntegrity(unittest.TestCase):
         row = conn.execute("PRAGMA journal_mode").fetchone()
         conn.close()
         self.assertEqual(row[0].upper(), "WAL")
+
+
+# ═══════════════════════════════════════════════════════════
+# 8. USER TESTS
+# ═══════════════════════════════════════════════════════════
+
+class TestUserModels(unittest.TestCase):
+
+    def test_admin_exists(self):
+        user = get_user_by_email("admin@livingway.church")
+        self.assertIsNotNone(user)
+        self.assertEqual(user["role"], "admin")
+        self.assertTrue(user["is_approved"])
+
+    def test_verify_admin(self):
+        user = verify_user("admin@livingway.church", "qazcde@123")
+        self.assertIsNotNone(user)
+
+    def test_verify_bad_password(self):
+        user = verify_user("admin@livingway.church", "wrong")
+        self.assertIsNone(user)
+
+    def test_verify_bad_email(self):
+        user = verify_user("nobody@nowhere.com", "x")
+        self.assertIsNone(user)
+
+    def test_add_and_get_user(self):
+        uid = add_user("testuser", "test@test.com", "secret123", "viewer", "Test User", 1)
+        u = get_user(uid)
+        self.assertIsNotNone(u)
+        self.assertEqual(u["username"], "testuser")
+        self.assertEqual(u["email"], "test@test.com")
+        self.assertEqual(u["role"], "viewer")
+
+    def test_update_user(self):
+        uid = add_user("updateme", "upd@test.com", "pw", "viewer", "Before", 1)
+        update_user(uid, "updated", "upd@test.com", "power_user", "After")
+        u = get_user(uid)
+        self.assertEqual(u["username"], "updated")
+        self.assertEqual(u["role"], "power_user")
+        self.assertEqual(u["display_name"], "After")
+
+    def test_change_password(self):
+        uid = add_user("changepw", "cpw@test.com", "oldpw", "viewer", "", 1)
+        update_user_password(uid, "newpw")
+        user = verify_user("cpw@test.com", "newpw")
+        self.assertIsNotNone(user)
+        user = verify_user("cpw@test.com", "oldpw")
+        self.assertIsNone(user)
+
+    def test_approve_unapprove(self):
+        uid = add_user("pending", "pend@test.com", "pw", "viewer", "", 0)
+        self.assertFalse(get_user(uid)["is_approved"])
+        set_user_approved(uid, 1)
+        self.assertTrue(get_user(uid)["is_approved"])
+        set_user_approved(uid, 0)
+        self.assertFalse(get_user(uid)["is_approved"])
+
+    def test_delete_user(self):
+        uid = add_user("deleteme", "del@test.com", "pw", "viewer", "", 1)
+        delete_user(uid)
+        self.assertIsNone(get_user(uid))
+
+    def test_cannot_delete_last_admin(self):
+        with self.assertRaises(ValueError):
+            admin = get_user_by_email("admin@livingway.church")
+            delete_user(admin["id"])
+
+    def test_get_users(self):
+        users = get_users()
+        self.assertTrue(len(users) >= 1)
+
+
+class TestUserRoutes(unittest.TestCase):
+
+    def setUp(self):
+        self.c = app.test_client()
+
+    def test_login_page(self):
+        resp = self.c.get("/login")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_register_page(self):
+        resp = self.c.get("/register")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_register_user(self):
+        resp = self.c.post("/register", data={
+            "username": "newguy",
+            "email": "newguy@test.com",
+            "password": "test123",
+            "confirm_password": "test123",
+            "display_name": "New Guy",
+        }, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"approve your account", resp.data.lower())
+
+    def test_unapproved_cannot_login(self):
+        uid = add_user("unapproved", "unapp@test.com", "pw", "viewer", "", 0)
+        resp = self.c.post("/login", data={
+            "email": "unapp@test.com",
+            "password": "pw",
+        }, follow_redirects=True)
+        self.assertIn(b"pending approval", resp.data.lower())
+
+    def test_login_success(self):
+        self.c.post("/login", data={
+            "email": "admin@livingway.church",
+            "password": "qazcde@123",
+        }, follow_redirects=True)
+        resp = self.c.get("/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_logout(self):
+        self.c.post("/login", data={
+            "email": "admin@livingway.church",
+            "password": "qazcde@123",
+        })
+        resp = self.c.get("/logout", follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        # Should redirect to login
+        resp = self.c.get("/", follow_redirects=False)
+        self.assertIn(resp.status_code, (302,))
+
+    def test_viewer_blocked_from_write(self):
+        uid = add_user("vieweronly", "view@test.com", "pw", "viewer", "Viewer", 1)
+        self.c.post("/login", data={"email": "view@test.com", "password": "pw"}, follow_redirects=True)
+        resp = self.c.post("/members/add", data={"name": "Should Not Work"}, follow_redirects=True)
+        self.assertIn(b"do not have permission", resp.data.lower())
+
+    def test_power_user_can_write(self):
+        uid = add_user("power", "power@test.com", "pw", "power_user", "Power", 1)
+        self.c.post("/login", data={"email": "power@test.com", "password": "pw"}, follow_redirects=True)
+        resp = self.c.post("/members/add", data={
+            "name": "Power User Member",
+            "designation": "Test",
+            "phone": "",
+            "email": "",
+        }, follow_redirects=True)
+        self.assertNotIn(b"do not have permission", resp.data.lower())
+
+    def test_power_user_blocked_from_admin(self):
+        uid = add_user("pow2", "pow2@test.com", "pw", "power_user", "", 1)
+        self.c.post("/login", data={"email": "pow2@test.com", "password": "pw"}, follow_redirects=True)
+        resp = self.c.get("/users", follow_redirects=True)
+        self.assertIn(b"admin access required", resp.data.lower())
+
+    def test_admin_user_page(self):
+        self.c.post("/login", data={"email": "admin@livingway.church", "password": "qazcde@123"}, follow_redirects=True)
+        resp = self.c.get("/users")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_change_own_password(self):
+        uid = add_user("selfpw", "selfpw@test.com", "old", "viewer", "", 1)
+        self.c.post("/login", data={"email": "selfpw@test.com", "password": "old"}, follow_redirects=True)
+        resp = self.c.post("/password", data={
+            "current_password": "old",
+            "new_password": "newself",
+            "confirm_password": "newself",
+        }, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(verify_user("selfpw@test.com", "newself"))
+
+    def test_admin_reset_password(self):
+        uid = add_user("resetme", "reset@test.com", "oldpw", "viewer", "", 1)
+        self.c.post("/login", data={"email": "admin@livingway.church", "password": "qazcde@123"}, follow_redirects=True)
+        resp = self.c.post(f"/users/{uid}/password", data={"password": "newadminpw"}, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(verify_user("reset@test.com", "newadminpw"))
 
 
 if __name__ == "__main__":

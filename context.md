@@ -31,8 +31,8 @@ The source file `Planning committe.xlsx` contained **8 sheets** with the followi
 
 | Excel Sheet(s) | System Module | Key Features |
 |----------------|--------------|--------------|
-| Re cap Sunday service | Sunday Recap | Date-based form with per-item notes + general notes |
-| Plan for next Sunday | Sunday Plan | Role-by-role assignment for upcoming Sundays |
+| Re cap Sunday service | Task Board | Follow-up tracked via task status + comments on 'Plan for Next Sunday' sub-program tasks |
+| Plan for next Sunday | Sub-program (Programs & Meetings) | "Plan for Next Sunday" weekly sub-program with 20 role tasks (Coordinators, Ushers, AV, etc.) |
 | Programs & meetings + Calander | Calendar | Month grid, color-coded events, date picker |
 | Admin & maintenence | Directory + Task Board | Member list + task CRUD |
 | Ministries & Projects 1/2/3 | Ministries + Task Board | Ministry list; tasks filterable by ministry |
@@ -54,7 +54,6 @@ The source file `Planning committe.xlsx` contained **8 sheets** with the followi
 3. **SQLite for portability** — single file backup; zero config.
 4. **Mobile-friendly** — responsive layout via CSS media queries.
 5. **Color-coded badges** — Red/Green/Yellow/Blue for status/priority (novice-friendly).
-6. **JSON for semi-structured data** — Sunday Recap notes and Plan assignments stored as JSON text columns.
 
 ## Architecture
 
@@ -65,7 +64,7 @@ chms/
 ├── chms.db             # SQLite database (auto-created on first import)
 ├── static/
 │   └── style.css       # All styles (~420 lines)
-├── templates/          # 12 Jinja2 templates
+├── templates/          # 11 Jinja2 templates
 │   ├── base.html       # Layout: header, nav, flash messages, footer
 │   ├── dashboard.html  # Summary cards + overdue alert + recent tasks
 │   ├── tasks.html      # Task board with filter bar
@@ -76,15 +75,11 @@ chms/
 │   ├── ministry_form.html # Ministry add/edit form
 │   ├── calendar.html   # Month grid + side panel
 │   ├── event_form.html # Event add/edit form
-│   ├── sunday_recap.html       # Recap list
-│   ├── sunday_recap_form.html  # New recap form
-│   ├── sunday_plan.html        # Plan list
-│   └── sunday_plan_form.html   # New plan form
 ├── context.md          # This file
 └── todo.md             # Task tracker
 ```
 
-## Database Schema (7 tables)
+## Database Schema (8 tables)
 
 ```sql
 -- Core tables (models.py:init_db)
@@ -128,19 +123,6 @@ events
   notes         TEXT DEFAULT ''
   created_at    TEXT DEFAULT datetime('now')
 
--- Sunday workflow tables (also in init_db)
-sunday_recap
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  service_date  TEXT NOT NULL
-  notes_json    TEXT DEFAULT '{}'  -- JSON dict: {"coordinators":"...", "ushers":"...", etc.}
-  general_notes TEXT DEFAULT ''
-  created_at    TEXT DEFAULT datetime('now')
-
-sunday_plan
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  service_date  TEXT NOT NULL
-  assignments_json TEXT DEFAULT '{}'  -- JSON dict: {"coordinators":"...", "ushers":"...", etc.}
-  created_at    TEXT DEFAULT datetime('now')
 ```
 
 ## Route Map (app.py)
@@ -165,10 +147,6 @@ sunday_plan
 | GET/POST | `/events/add` | Calendar | Add event |
 | GET/POST | `/events/<id>/edit` | Calendar | Edit event |
 | POST | `/events/<id>/delete` | Calendar | Delete event |
-| GET | `/sunday/recap` | Sunday | Recap list |
-| GET/POST | `/sunday/recap/add` | Sunday | New recap |
-| GET | `/sunday/plan` | Sunday | Plan list |
-| GET/POST | `/sunday/plan/add` | Sunday | New plan |
 
 ## Code Conventions
 
@@ -182,7 +160,6 @@ sunday_plan
 ### app.py
 - Template globals: `today()`, `status_badge_class()`, `priority_badge_class()`
 - Flash messages with categories: `"success"` (green) and `"error"` (red)
-- Sunday data (notes_json, assignments_json) stored as JSON text, parsed with `json.loads()` before template render
 - `if __name__ == "__main__":` block: calls `init_db()`, opens browser, starts Flask
 
 ### Templates (Jinja2)
@@ -193,14 +170,11 @@ sunday_plan
 
 ## Known Limitations & Technical Debt
 
-1. **Sunday JSON fields** — `notes_json` and `assignments_json` are stored as JSON text with no schema validation. If a key name changes, old data is invisible.
-2. **No delete confirmation** on Sunday recap/plan items (should add modal or confirm dialog).
-3. **No pagination** — task list could become slow with 1000+ tasks.
-4. **No export/report** — no PDF or Excel export for committee records.
-5. **Single-user only** — adding login would require session management and user table.
-6. **No data migration** — the original Excel data must be manually re-entered.
-7. **Static Sunday items** — `SUNDAY_ITEMS` and `PLAN_ROLES` are hardcoded lists in app.py. Should be database-driven for flexibility.
-8. **No task deletion cascade** — deleting a member or ministry referenced by a task will leave orphaned foreign keys (the reference becomes null since `ON DELETE SET NULL` is not used).
+1. **No pagination** — task list could become slow with 1000+ tasks.
+2. **No export/report** — no PDF or Excel export for committee records.
+3. **Single-user only** — adding login would require session management and user table.
+4. **No data migration** — the original Excel data must be manually re-entered.
+5. **No task deletion cascade** — deleting a member or ministry referenced by a task will leave orphaned foreign keys (the reference becomes null since `ON DELETE SET NULL` is not used).
 
 ## Setup & Run
 
@@ -219,12 +193,11 @@ python3 app.py
 ## Future Enhancement Ideas
 
 1. **Multi-user with login** — add `users` table, session auth, role-based access (admin/editor/viewer).
-2. **Report generation** — use reportlab to generate PDF summaries of tasks, Sunday reports, monthly calendars.
-3. **Excel import** — allow importing the old `Planning committe.xlsx` to seed initial data.
-4. **Email digests** — weekly email to committee with overdue tasks and upcoming Sunday plan.
-5. **Drag-and-drop task board** — Kanban-style column view.
-6. **Recurring events** — ability to set events that repeat weekly/monthly/yearly.
-7. **File attachments** — attach photos/PDFs to tasks and events.
-8. **Audit log** — track who changed what and when (mainly useful when multi-user added).
-9. **Theme settings** — editable church name, logo upload.
-10. **Docker deployment** — Dockerfile + docker-compose for production hosting.
+2. **Excel import** — allow importing the old `Planning committe.xlsx` to seed initial data.
+3. **Email digests** — weekly email to committee with overdue tasks and upcoming Sunday plan.
+4. **Drag-and-drop task board** — Kanban-style column view.
+5. **Recurring events** — ability to set events that repeat weekly/monthly/yearly.
+6. **File attachments** — attach photos/PDFs to tasks and events.
+7. **Audit log** — track who changed what and when (mainly useful when multi-user added).
+8. **Theme settings** — editable church name, logo upload.
+9. **Docker deployment** — Dockerfile + docker-compose for production hosting.

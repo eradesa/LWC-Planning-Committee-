@@ -34,6 +34,10 @@ STATUS_CASCADE_ORDER = [
 
 
 def get_conn():
+    # Ensure parent directory exists (important for mounted volumes on Fly.io)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -126,6 +130,18 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'viewer'
+                CHECK(role IN ('admin','power_user','viewer')),
+            display_name TEXT NOT NULL DEFAULT '',
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE INDEX IF NOT EXISTS idx_tasks_sub_program ON tasks(sub_program_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
         CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
@@ -178,6 +194,9 @@ def update_member(member_id, name, designation, phone, email):
 
 def delete_member(member_id):
     conn = get_conn()
+    # Orphaned refs: nullify references before deleting
+    conn.execute("UPDATE sub_programs SET in_charge_id=NULL WHERE in_charge_id=?", (member_id,))
+    conn.execute("UPDATE tasks SET assigned_to=NULL WHERE assigned_to=?", (member_id,))
     conn.execute("DELETE FROM members WHERE id=?", (member_id,))
     conn.commit()
     conn.close()
@@ -227,6 +246,8 @@ def update_program_category(category_id, name, description, sort_order):
 
 def delete_program_category(category_id):
     conn = get_conn()
+    # Orphaned refs: nullify category on sub-programs
+    conn.execute("UPDATE sub_programs SET program_category_id=NULL WHERE program_category_id=?", (category_id,))
     conn.execute("DELETE FROM program_categories WHERE id=?", (category_id,))
     conn.commit()
     conn.close()
@@ -475,17 +496,23 @@ def get_active_sub_programs(search=None):
 
 # ─── Tasks ───────────────────────────────────────────────
 
-def get_tasks(sub_program_id):
+def get_tasks(sub_program_id, page=1, per_page=100):
     conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM tasks WHERE sub_program_id=?",
+        (sub_program_id,),
+    ).fetchone()["c"]
+    offset = (page - 1) * per_page
     rows = conn.execute("""
         SELECT t.*, m.name AS assigned_name
         FROM tasks t
         LEFT JOIN members m ON t.assigned_to = m.id
         WHERE t.sub_program_id=?
         ORDER BY t.created_at DESC
-    """, (sub_program_id,)).fetchall()
+        LIMIT ? OFFSET ?
+    """, (sub_program_id, per_page, offset)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r) for r in rows], count
 
 
 def get_task(task_id):
@@ -547,6 +574,33 @@ def delete_task(task_id):
 
 # ─── Task Updates ────────────────────────────────────────
 
+def get_due_reminders():
+    today_iso = date.today().isoformat()
+    week_end = (date.today() + timedelta(days=7)).isoformat()
+    conn = get_conn()
+
+    due_today = conn.execute("""
+        SELECT t.id, t.title, t.due_date, t.priority, t.status,
+               sp.title AS sub_title, sp.id AS sub_id
+        FROM tasks t
+        JOIN sub_programs sp ON t.sub_program_id = sp.id
+        WHERE t.due_date=? AND t.status NOT IN ('completed', 'on_hold', 'suspended')
+        ORDER BY t.priority DESC
+    """, (today_iso,)).fetchall()
+
+    due_this_week = conn.execute("""
+        SELECT t.id, t.title, t.due_date, t.priority, t.status,
+               sp.title AS sub_title, sp.id AS sub_id
+        FROM tasks t
+        JOIN sub_programs sp ON t.sub_program_id = sp.id
+        WHERE t.due_date>? AND t.due_date<=? AND t.status NOT IN ('completed', 'on_hold', 'suspended')
+        ORDER BY t.due_date, t.priority DESC
+    """, (today_iso, week_end)).fetchall()
+
+    conn.close()
+    return [dict(r) for r in due_today], [dict(r) for r in due_this_week]
+
+
 def get_task_updates(task_id):
     conn = get_conn()
     rows = conn.execute(
@@ -582,8 +636,39 @@ def get_events(year=None, month=None):
         params.append(f"{int(month):02d}")
     sql += " ORDER BY e.start_date"
     rows = conn.execute(sql, params).fetchall()
+
+    events = [dict(r) for r in rows]
+
+    # Expand recurring events into the queried month
+    if year and month:
+        recurring = conn.execute("""
+            SELECT * FROM events
+            WHERE recurring_type != 'none' AND sub_program_id IS NULL
+        """).fetchall()
+        for ev in recurring:
+            ev = dict(ev)
+            delta = RECURRENCE_DELTA.get(ev["recurring_type"])
+            if not delta:
+                continue
+            seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+            first_of_month = date(year, month, 1)
+            if month == 12:
+                last_of_month = date(year, 12, 31)
+            else:
+                last_of_month = date(year, month + 1, 1) - timedelta(days=1)
+            gen = 0
+            while True:
+                inst = seed + delta * gen
+                if inst > last_of_month:
+                    break
+                if inst >= first_of_month and inst.isoformat() != ev["start_date"][:10]:
+                    virtual = dict(ev)
+                    virtual["start_date"] = inst.isoformat()
+                    events.append(virtual)
+                gen += 1
+
     conn.close()
-    return [dict(r) for r in rows]
+    return events
 
 
 def get_event(event_id):
@@ -676,11 +761,45 @@ def get_calendar_entries(year, month):
     rows = conn.execute("""
         SELECT id, title, type_flag, start_date, 'event' AS source
         FROM events
-        WHERE strftime('%Y-%m', start_date)=?
+        WHERE recurring_type='none' AND strftime('%Y-%m', start_date)=?
         ORDER BY start_date
     """, (month_start,)).fetchall()
     entries.extend(dict(r) for r in rows)
+
+    # Expand recurring standalone events
+    recurring = conn.execute("""
+        SELECT id, title, type_flag, start_date, recurring_type, notes
+        FROM events
+        WHERE recurring_type != 'none'
+    """).fetchall()
     conn.close()
+
+    for ev in recurring:
+        ev = dict(ev)
+        delta = RECURRENCE_DELTA.get(ev["recurring_type"])
+        if not delta:
+            continue
+        seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+        first_of_month = date(year, month, 1)
+        if month == 12:
+            last_of_month = date(year, 12, 31)
+        else:
+            last_of_month = date(year, month + 1, 1) - timedelta(days=1)
+
+        gen = 0
+        while True:
+            instance_date = seed + delta * gen
+            if instance_date > last_of_month:
+                break
+            if instance_date >= first_of_month:
+                entries.append({
+                    "id": ev["id"],
+                    "title": ev["title"],
+                    "type_flag": ev["type_flag"],
+                    "start_date": instance_date.isoformat(),
+                    "source": "event",
+                })
+            gen += 1
 
     return entries
 
@@ -694,6 +813,26 @@ RECURRENCE_DELTA = {
     "quarterly": timedelta(days=91),
     "annual": timedelta(days=365),
 }
+
+
+def get_next_recurrence_dates(start_date, recurring_type, count=3):
+    if recurring_type == "none":
+        return []
+    delta = RECURRENCE_DELTA.get(recurring_type)
+    if not delta:
+        return []
+    seed = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
+    today = date.today()
+    result = []
+    gen = 1
+    while len(result) < count:
+        inst = seed + delta * gen
+        if inst > today:
+            result.append(inst.isoformat())
+        gen += 1
+        if gen > 100:
+            break
+    return result
 
 
 def get_config(key, default=None):
@@ -815,6 +954,98 @@ def generate_recurring_instances():
     if created:
         set_config("last_recurrence_check", today_iso)
     return created
+
+
+# ─── User Management ─────────────────────────────────────
+
+def get_users():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM users ORDER BY username").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_user(user_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_email(email):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_username(username):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def add_user(username, email, password, role="viewer", display_name="", is_approved=0):
+    from werkzeug.security import generate_password_hash
+    conn = get_conn()
+    pw_hash = generate_password_hash(password)
+    cur = conn.execute(
+        "INSERT INTO users (username, email, password_hash, role, display_name, is_approved)"
+        " VALUES (?,?,?,?,?,?)",
+        (username.strip(), email.strip().lower(), pw_hash, role, display_name.strip(), is_approved),
+    )
+    uid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return uid
+
+
+def update_user(user_id, username, email, role, display_name):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE users SET username=?, email=?, role=?, display_name=? WHERE id=?",
+        (username.strip(), email.strip().lower(), role, display_name.strip(), user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_user_password(user_id, password):
+    from werkzeug.security import generate_password_hash
+    conn = get_conn()
+    pw_hash = generate_password_hash(password)
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (pw_hash, user_id))
+    conn.commit()
+    conn.close()
+
+
+def set_user_approved(user_id, approved):
+    conn = get_conn()
+    conn.execute("UPDATE users SET is_approved=? WHERE id=?", (1 if approved else 0, user_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_user(user_id):
+    conn = get_conn()
+    admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND is_approved=1").fetchone()["c"]
+    if admin_count <= 1:
+        target = conn.execute("SELECT role, is_approved FROM users WHERE id=?", (user_id,)).fetchone()
+        if target and target["role"] == "admin" and target["is_approved"]:
+            conn.close()
+            raise ValueError("Cannot delete the last approved admin user")
+    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def verify_user(email, password):
+    from werkzeug.security import check_password_hash
+    user = get_user_by_email(email)
+    if user and check_password_hash(user["password_hash"], password):
+        return user
+    return None
 
 
 # ─── Auto-init ────────────────────────────────────────────

@@ -1,0 +1,48 @@
+# fly.toml app configuration file generated for chms-prototype on 2026-05-25T10:21:26+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'chms-prototype'
+primary_region = 'ams'
+
+[build]
+
+[env]
+  CHMS_DB_PATH = '/data/chms.db'
+  PYTHONUNBUFFERED = '1'
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 5000
+
+  [[services.ports]]
+    port = 80
+    handlers = ['http']
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ['tls', 'http']
+
+  [services.concurrency]
+    type = 'connections'
+    hard_limit = 25
+    soft_limit = 10
+
+[[vm]]
+  memory = '256mb'
+  cpus = 1
+  memory_mb = 256
+
+[[mounts]]
+  source = "chms_data"
+  destination = "/data"

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="30">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>{% endblock %}
 {% block content %}
 <div class="page-header">
     <h2>Dashboard</h2>
@@ -7,13 +8,54 @@
 </div>
 
 <div class="card-grid">
-    <div class="card"><div class="card-number">{{ counts.total }}</div><div class="card-label">Total Sub-Programs</div></div>
-    <div class="card card-open"><div class="card-number">{{ counts.open }}</div><div class="card-label">Open</div></div>
-    <div class="card card-progress"><div class="card-number">{{ counts.in_progress }}</div><div class="card-label">In-Progress</div></div>
-    <div class="card card-hold"><div class="card-number">{{ counts.on_hold_suspended }}</div><div class="card-label">On-Hold / Suspended</div></div>
-    <div class="card card-done"><div class="card-number">{{ counts.completed }}</div><div class="card-label">Completed</div></div>
-    <div class="card card-overdue"><div class="card-number">{{ counts.overdue }}</div><div class="card-label">Overdue</div></div>
+    <a href="{{ url_for('programs_landing') }}" class="card-link"><div class="card hoverable"><div class="card-number">{{ counts.total }}</div><div class="card-label">Total Sub-Programs</div></div></a>
+    <a href="{{ url_for('programs_landing', status='open') }}" class="card-link"><div class="card card-open hoverable"><div class="card-number">{{ counts.open }}</div><div class="card-label">Open</div></div></a>
+    <a href="{{ url_for('programs_landing', status='in_progress') }}" class="card-link"><div class="card card-progress hoverable"><div class="card-number">{{ counts.in_progress }}</div><div class="card-label">In-Progress</div></div></a>
+    <a href="{{ url_for('programs_landing', status='on_hold') }}" class="card-link"><div class="card card-hold hoverable"><div class="card-number">{{ counts.on_hold_suspended }}</div><div class="card-label">On-Hold / Suspended</div></div></a>
+    <a href="{{ url_for('programs_landing', status='completed') }}" class="card-link"><div class="card card-done hoverable"><div class="card-number">{{ counts.completed }}</div><div class="card-label">Completed</div></div></a>
+    <a href="{{ url_for('programs_landing', status='overdue') }}" class="card-link"><div class="card card-overdue hoverable"><div class="card-number">{{ counts.overdue }}</div><div class="card-label">Overdue</div></div></a>
 </div>
+
+{% if due_today %}
+<div class="due-section" style="margin-bottom:20px;">
+    <h3 style="font-size:16px;color:#be1e28;margin-bottom:8px;">🔴 Due Today</h3>
+    <div class="table-wrap" style="margin-bottom:12px;">
+        <table>
+            <thead><tr><th>Task</th><th>Sub-Program</th><th>Priority</th></tr></thead>
+            <tbody>
+                {% for t in due_today %}
+                <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
+                    <td><strong>{{ t.title }}</strong></td>
+                    <td>{{ t.sub_title }}</td>
+                    <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if due_this_week %}
+<div class="due-section" style="margin-bottom:20px;">
+    <h3 style="font-size:16px;color:#856404;margin-bottom:8px;">🟡 Due This Week</h3>
+    <div class="table-wrap" style="margin-bottom:12px;">
+        <table>
+            <thead><tr><th>Task</th><th>Sub-Program</th><th>Due</th><th>Priority</th></tr></thead>
+            <tbody>
+                {% for t in due_this_week %}
+                <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
+                    <td><strong>{{ t.title }}</strong></td>
+                    <td>{{ t.sub_title }}</td>
+                    <td>{{ t.due_date }}</td>
+                    <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 
 <div class="layout-sidebar">
     <div>
@@ -77,8 +119,9 @@
     </div>
 
     <div>
-        <div class="sidebar-card">
-            <h3>Upcoming Schedule</h3>
+        <div class="sidebar-card" style="max-height:340px;display:flex;flex-direction:column;">
+            <h3 style="flex-shrink:0;">Upcoming Schedule</h3>
+            <div style="overflow-y:auto;flex:1;">
             {% if schedule %}
             {% for item in schedule %}
             <div class="schedule-item">
@@ -86,7 +129,7 @@
                     {% if item.source == 'sub_program' %}
                     <a href="{{ url_for('sub_program_detail', sub_id=item.id) }}">{{ item.title }}</a>
                     {% else %}
-                    {{ item.title }}
+                    <a href="#" onclick="showEventDetail({{ item.id }});return false;">{{ item.title }}</a>
                     {% endif %}
                 </div>
                 <div class="schedule-meta">
@@ -98,6 +141,21 @@
             {% else %}
             <p style="color:#999;">No upcoming items.</p>
             {% endif %}
+            </div>
+        </div>
+
+        <div class="sidebar-card" style="margin-top:16px;">
+            <h3>Tasks by Status</h3>
+            <canvas id="statusChart" width="280" height="200"></canvas>
+        </div>
+
+        <div class="sidebar-card" style="margin-top:16px;">
+            <h3>Export</h3>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <a href="{{ url_for('export_tasks_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Tasks (CSV)</a>
+                <a href="{{ url_for('export_events_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Events (CSV)</a>
+                <a href="{{ url_for('export_members_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Members (CSV)</a>
+            </div>
         </div>
     </div>
 </div>
@@ -125,5 +183,59 @@ function sortActive(col) {
     });
     rows.forEach(function(r) { tbody.appendChild(r); });
 }
+
+var counts = {{ chart_counts|tojson }};
+if (document.getElementById('statusChart')) {
+    new Chart(document.getElementById('statusChart'), {
+        type: 'bar',
+        data: {
+            labels: ['Open', 'In Progress', 'Completed', 'Hold/Susp.', 'Overdue'],
+            datasets: [{
+                data: [counts.open, counts.in_progress, counts.completed, counts.on_hold_suspended, counts.overdue],
+                backgroundColor: ['#856404','#0a5a96','#28a745','#721c24','#be1e28']
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+}
+
+function showEventDetail(eventId) {
+    fetch('/calendar/event/' + eventId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            document.getElementById('eventTitle').textContent = data.title || 'Event';
+            document.getElementById('eventDate').textContent = data.date || '—';
+            document.getElementById('eventType').textContent = data.type_flag || '—';
+            document.getElementById('eventSub').textContent = data.sub_program_title || '—';
+            document.getElementById('eventNotes').textContent = data.notes || '—';
+            document.getElementById('eventModal').style.display = 'block';
+        })
+        .catch(function() { alert('Could not load event details'); });
+}
+
+function closeEventModal() {
+    document.getElementById('eventModal').style.display = 'none';
+}
 </script>
+
+<!-- Event detail modal -->
+<div id="eventModal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:420px;">
+        <span class="modal-close" onclick="closeEventModal()">&times;</span>
+        <h3 id="eventTitle" style="margin-bottom:12px;"></h3>
+        <table style="width:100%;">
+            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Date</td><td id="eventDate" style="padding:4px 0;"></td></tr>
+            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Type</td><td id="eventType" style="padding:4px 0;"></td></tr>
+            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Sub-Program</td><td id="eventSub" style="padding:4px 0;"></td></tr>
+            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Notes</td><td id="eventNotes" style="padding:4px 0;white-space:pre-wrap;"></td></tr>
+        </table>
+        <div class="form-actions" style="margin-top:16px;">
+            <button type="button" class="btn btn-outline" onclick="closeEventModal()">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}

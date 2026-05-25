@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+*.db
+.git
+.github
+dist
+build
+*.spec
+*.exe
+**/__pycache__

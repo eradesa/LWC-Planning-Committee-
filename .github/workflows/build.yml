@@ -21,12 +21,19 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Download UPX
+        run: |
+          curl -L https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip -o upx.zip
+          tar -xf upx.zip
+          echo "${{ github.workspace }}/upx-4.2.4-win64" >> $env:GITHUB_PATH
+
       - name: Build with PyInstaller
         run: |
           pyinstaller --onefile --noconsole --name ChMS.exe `
             --add-data "templates;templates" `
             --add-data "static;static" `
-            --add-data "sub-programs.xlsx;." `
+            --add-data "seed_data.json;." `
+            --upx-dir "${{ github.workspace }}/upx-4.2.4-win64" `
             app.py
 
       - uses: actions/upload-artifact@v4

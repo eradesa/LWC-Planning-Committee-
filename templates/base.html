@@ -8,6 +8,9 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    <div id="loadingOverlay"><div class="spinner"></div></div>
+    <script>document.addEventListener('DOMContentLoaded',function(){document.getElementById('loadingOverlay').classList.add('hidden');});</script>
+    {% if current_user %}
     <header>
         <div class="header-inner">
             <a href="{{ url_for('dashboard') }}" class="logo-link">
@@ -26,9 +29,22 @@
                 <a href="{{ url_for('calendar_view') }}">Calendar</a>
                 <a href="{{ url_for('category_add') }}" class="nav-add">+ Add Program</a>
                 <a href="{{ url_for('member_list') }}">Directory</a>
+                {% if current_user.role in ('admin', 'power_user') %}
+                <a href="{{ url_for('import_data') }}">Import</a>
+                {% endif %}
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('user_list') }}">Users</a>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline" style="margin-left:auto;border-color:#e74c3c;color:#e74c3c;">Logoff</a>
             </nav>
+            <div class="auth-info">
+                <span>{{ current_user.display_name or current_user.username }}</span>
+                <span class="badge {% if current_user.role == 'admin' %}badge-critical{% elif current_user.role == 'power_user' %}badge-high{% else %}badge-med{% endif %}">{{ current_user.role }}</span>
+                <a href="{{ url_for('change_password') }}" style="margin-left:10px;font-size:12px;color:#aaa;text-decoration:underline;">Change Password</a>
+            </div>
         </div>
     </header>
+    {% endif %}
 
     <div class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -46,5 +62,38 @@
     <footer>
         <p>ChMS(prototype) — Living Way Church Planning Committee</p>
     </footer>
+
+    <!-- Delete confirmation modal -->
+    <div id="deleteModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:400px;">
+            <span class="modal-close" onclick="closeDeleteModal()">&times;</span>
+            <h3>Confirm Delete</h3>
+            <p id="deleteModalMessage" style="margin:12px 0;color:#555;">Are you sure?</p>
+            <form id="deleteModalForm" method="POST" action="">
+                <div class="form-actions" style="border:none;padding:0;margin-top:16px;">
+                    <button type="submit" class="btn btn-red">Delete</button>
+                    <button type="button" class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function confirmDelete(actionUrl, message) {
+        document.getElementById('deleteModalMessage').textContent = message;
+        document.getElementById('deleteModalForm').action = actionUrl;
+        document.getElementById('deleteModal').style.display = 'block';
+        return false;
+    }
+    function closeDeleteModal() {
+        document.getElementById('deleteModal').style.display = 'none';
+    }
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.hasAttribute('data-confirm-delete')) {
+            e.preventDefault();
+            confirmDelete(e.target.getAttribute('data-confirm-delete'), e.target.getAttribute('data-confirm-message') || 'Delete this item?');
+        }
+    });
+    </script>
 </body>
 </html>

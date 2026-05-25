@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>User Management</h2>
+    <a href="{{ url_for('user_add') }}" class="btn btn-primary">+ Add User</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Display Name</th>
+                <th>Role</th>
+                <th>Approved</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td>{{ u.email }}</td>
+                <td>{{ u.display_name or '—' }}</td>
+                <td><span class="badge
+                    {% if u.role == 'admin' %}badge-critical
+                    {% elif u.role == 'power_user' %}badge-high
+                    {% else %}badge-med{% endif %}">{{ u.role }}</span></td>
+                <td>
+                    {% if u.is_approved %}
+                    <span class="badge badge-done">Yes</span>
+                    {% else %}
+                    <span class="badge badge-suspended">No</span>
+                    {% endif %}
+                </td>
+                <td class="action-cell">
+                    <a href="{{ url_for('user_edit', uid=u.id) }}" class="btn btn-sm">Edit</a>
+                    <a href="{{ url_for('user_password', uid=u.id) }}" class="btn btn-sm">Reset PW</a>
+                    <form method="POST" action="{{ url_for('user_approve', uid=u.id) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-outline">
+                            {{ 'Unapprove' if u.is_approved else 'Approve' }}
+                        </button>
+                    </form>
+                    {% if current_user.id != u.id %}
+                    <button class="btn btn-sm btn-red" data-confirm-delete="{{ url_for('user_delete', uid=u.id) }}"
+                            data-confirm-message="Delete user '{{ u.username }}'?">Delete</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

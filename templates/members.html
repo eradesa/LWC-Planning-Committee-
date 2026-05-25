@@ -20,9 +20,7 @@
                 <td>{{ m.email or '—' }}</td>
                 <td class="actions">
                     <a href="{{ url_for('member_edit', mid=m.id) }}" class="btn btn-sm btn-outline">Edit</a>
-                    <form method="POST" action="{{ url_for('member_delete', mid=m.id) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-sm btn-red" onclick="return confirm('Delete {{ m.name }}?')">Delete</button>
-                    </form>
+                    <button type="button" class="btn btn-sm btn-red" data-confirm-delete="{{ url_for('member_delete', mid=m.id) }}" data-confirm-message="Delete {{ m.name }}? This will clear their references from sub-programs and tasks.">Delete</button>
                 </td>
             </tr>
             {% endfor %}

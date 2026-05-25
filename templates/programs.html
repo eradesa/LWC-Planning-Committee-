@@ -1,13 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-header">
-    <h2>Programs</h2>
-    <a href="{{ url_for('sub_program_add') }}" class="btn btn-primary">+ Add New Sub-Program</a>
+    <h2>Programs{% if status %} — {{ status }}{% endif %}</h2>
+    <div>
+        <a href="{{ url_for('sub_program_add') }}" class="btn btn-primary">+ Add New Sub-Program</a>
+        {% if status %}<a href="{{ url_for('programs_landing') }}" class="btn btn-outline">Clear Filter</a>{% endif %}
+    </div>
 </div>
 
 <div class="card-grid">
     {% for c in categories %}
-    <a href="{{ url_for('program_category', cat_id=c.id) }}" class="card-link">
+    <a href="{{ url_for('program_category', cat_id=c.id, status=status) if status else url_for('program_category', cat_id=c.id) }}" class="card-link">
         <div class="card hoverable">
             <div class="card-number">{{ c.active_count }}/{{ c.sub_count }}</div>
             <div class="card-label" style="font-size:14px;font-weight:600;color:#1a3a5c;text-transform:none;">{{ c.name }}</div>

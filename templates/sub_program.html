@@ -72,9 +72,15 @@
                             </a>
                         </td>
                         <td class="actions">
-                            <form method="POST" action="{{ url_for('task_delete', tid=t.id) }}" style="display:inline;">
-                                <button type="submit" class="btn btn-sm btn-red" onclick="return confirm('Delete task?')">Del</button>
+                            <form method="POST" action="{{ url_for('task_toggle', tid=t.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm {% if t.status == 'completed' %}btn-outline{% else %}btn-primary{% endif %}">
+                                    {% if t.status == 'completed' %}Reopen{% else %}Done{% endif %}
+                                </button>
                             </form>
+                            <form method="POST" action="{{ url_for('task_duplicate', tid=t.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-outline">Copy</button>
+                            </form>
+                            <button type="button" class="btn btn-sm btn-red" data-confirm-delete="{{ url_for('task_delete', tid=t.id) }}" data-confirm-message="Delete task '{{ t.title }}'?">Del</button>
                         </td>
                     </tr>
                     <tr class="task-updates-row" id="updates-{{ t.id }}" style="display:none;">
@@ -101,6 +107,19 @@
                 </tbody>
             </table>
         </div>
+        {% if total_pages > 1 %}
+        <div style="display:flex;justify-content:center;gap:8px;margin-top:12px;">
+            {% if page > 1 %}
+            <a href="?page={{ page-1 }}" class="btn btn-sm btn-outline">&laquo; Prev</a>
+            {% endif %}
+            <span style="padding:5px 12px;font-size:13px;color:#888;">
+                Page {{ page }} of {{ total_pages }} ({{ total_tasks }} tasks)
+            </span>
+            {% if page < total_pages %}
+            <a href="?page={{ page+1 }}" class="btn btn-sm btn-outline">Next &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
         {% else %}
         <p style="color:#999;">No tasks yet.</p>
         {% endif %}
@@ -153,12 +172,10 @@
             </form>
         </div>
 
-        <div class="sidebar-card" style="margin-top:16px;">
-            <h3>Danger Zone</h3>
-            <form method="POST" action="{{ url_for('sub_program_delete', sub_id=sub.id) }}">
-                <button type="submit" class="btn btn-red" onclick="return confirm('Delete this sub-program? This cannot be undone.')">Delete Sub-Program</button>
-            </form>
-        </div>
+            <div class="sidebar-card" style="margin-top:16px;">
+                <h3>Danger Zone</h3>
+                <button type="button" class="btn btn-red" data-confirm-delete="{{ url_for('sub_program_delete', sub_id=sub.id) }}" data-confirm-message="Delete sub-program '{{ sub.title }}'? This cannot be undone.">Delete Sub-Program</button>
+            </div>
     </div>
 </div>
 

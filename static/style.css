@@ -338,6 +338,24 @@ footer {
     font-size: 12px; border-top: 1px solid #eee; margin-top: 24px;
 }
 
+/* ─── LOADING OVERLAY ──────────────────────────── */
+#loadingOverlay {
+    position: fixed; z-index: 9999; left: 0; top: 0;
+    width: 100%; height: 100%;
+    background: #f4f6f9;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.3s;
+}
+#loadingOverlay.hidden { opacity: 0; pointer-events: none; }
+.spinner {
+    width: 40px; height: 40px;
+    border: 4px solid #ddd;
+    border-top-color: #1a3a5c;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ─── RESPONSIVE ──────────────────────────────── */
 @media (max-width: 768px) {
     .header-inner { flex-direction: column; text-align: center; }
@@ -347,4 +365,79 @@ footer {
     .cal-grid td { height: 60px; font-size: 11px; }
     .card-grid { grid-template-columns: repeat(2, 1fr); }
     .card-list { grid-template-columns: 1fr; }
+}
+
+/* ─── PRINT ────────────────────────────────────── */
+@media print {
+    body { background: #fff; color: #000; font-size: 11px; }
+    header, nav, footer, .btn, .flash-messages, .page-header .btn,
+    .actions, .status-select, form, .search-input, .no-print { display: none !important; }
+    .container { margin: 0; padding: 0; max-width: 100%; }
+    .table-wrap { box-shadow: none; border: 1px solid #ccc; }
+    table th, table td { padding: 6px 8px; font-size: 10px; }
+    .badge { border: 1px solid #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .card, .sub-card, .form-card, .sidebar-card { box-shadow: none; border: 1px solid #ddd; }
+    .card-grid { grid-template-columns: repeat(4, 1fr); }
+    .cal-grid { box-shadow: none; border: 1px solid #ccc; }
+    .cal-grid th { background: #333 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .cal-grid td { height: 70px; border: 1px solid #ccc; }
+    .cal-grid td.other-month { background: #f5f5f5; }
+    .cal-grid td.today { background: #e8f0fe; }
+    .cal-event { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .cal-event.event { color: #333; }
+    .modal { position: static; background: none; }
+    .modal-content { box-shadow: none; border: 1px solid #ccc; margin: 0; }
+    .update-item { border-left-color: #333; }
+    .sub-program-meta { box-shadow: none; border: 1px solid #ddd; }
+    a { color: #000; text-decoration: underline; }
+}
+
+/* ─── Auth Forms ────────────────────────────────── */
+.auth-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 60px;
+    flex: 1;
+}
+.auth-card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+    padding: 28px 32px 24px;
+    width: 100%;
+    max-width: 380px;
+}
+.auth-card h2 {
+    font-size: 18px;
+    color: #1a3a5c;
+    margin-bottom: 18px;
+    text-align: center;
+}
+.auth-card .form-group { margin-bottom: 12px; }
+.auth-card label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.auth-card input[type="text"],
+.auth-card input[type="email"],
+.auth-card input[type="password"] {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 13px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.auth-card .form-actions { margin-top: 16px; }
+.auth-card .form-actions .btn { width: 100%; padding: 8px; font-size: 13px; }
+.auth-link {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: #888;
 }
