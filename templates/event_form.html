@@ -136,7 +136,10 @@ function toggleRecurringOptions() {
     var sel = document.getElementById('recurringSelect');
     var val = sel.value;
     var g = document.getElementById('expiryGroup');
-    g.style.display = val === 'none' ? 'none' : 'block';
+    var expiryInput = g.querySelector('input');
+    var isRecurring = val !== 'none';
+    g.style.display = isRecurring ? 'block' : 'none';
+    expiryInput.required = isRecurring;
     var rg = document.getElementById('recurringByGroup');
     rg.style.display = (val === 'monthly' || val === 'quarterly' || val === 'annual') ? 'block' : 'none';
     if (rg.style.display === 'none') {

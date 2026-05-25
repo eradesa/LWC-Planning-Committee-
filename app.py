@@ -780,6 +780,19 @@ def event_add():
                     recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
                 )
 
+        rt = request.form.get("recurring_type", "none")
+        expiry = request.form.get("expiry_date")
+        if rt != "none" and not expiry:
+            flash("Recurring Expiry Date is required for recurring events", "error")
+            subs = get_linkable_sub_programs()
+            members = get_members()
+            event_type_flags = [f for f in TYPE_FLAGS if f != "Program"]
+            return render_template(
+                "event_form.html", event=None,
+                subs=subs, members=members,
+                recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
+            )
+
         event_id = add_event(
             title=request.form["title"],
             sub_program_id=sub_id,
@@ -787,7 +800,7 @@ def event_add():
             type_flag=request.form.get("type_flag", "Event"),
             start_date=start_date,
             notes=request.form.get("notes", ""),
-            expiry_date=request.form.get("expiry_date") or None,
+            expiry_date=expiry or None,
             recurring_by=recurring_by,
             recurring_weekday=recurring_weekday,
             recurring_ordinal=recurring_ordinal,
@@ -851,6 +864,12 @@ def event_edit(eid):
     recurring_weekday = request.form.get("recurring_weekday", type=int)
     recurring_ordinal = request.form.get("recurring_ordinal", type=int)
 
+    rt = request.form.get("recurring_type", "none")
+    expiry = request.form.get("expiry_date")
+    if rt != "none" and not expiry:
+        flash("Recurring Expiry Date is required for recurring events", "error")
+        return redirect(url_for("event_edit", eid=eid))
+
     update_event(
         event_id=eid,
         title=request.form["title"],
@@ -859,7 +878,7 @@ def event_edit(eid):
         type_flag=request.form.get("type_flag", "Event"),
         start_date=request.form["start_date"],
         notes=request.form.get("notes", ""),
-        expiry_date=request.form.get("expiry_date") or None,
+        expiry_date=expiry or None,
         recurring_by=recurring_by,
         recurring_weekday=recurring_weekday,
         recurring_ordinal=recurring_ordinal,
@@ -867,9 +886,7 @@ def event_edit(eid):
     generate_recurring_instances(force=True)
     flash("Event updated", "success")
 
-    rt = request.form.get("recurring_type", event["recurring_type"])
     if rt != "none":
-        expiry = request.form.get("expiry_date") or None
         next_dates = get_next_recurrence_dates(
             request.form["start_date"], rt, 3, expiry,
             recurring_by=recurring_by,

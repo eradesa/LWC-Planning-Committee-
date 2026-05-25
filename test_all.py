@@ -745,6 +745,7 @@ class TestRoutes(unittest.TestCase):
             "type_flag": "Meeting",
             "start_date": "2026-08-15",
             "recurring_type": "monthly",
+            "expiry_date": "2027-08-15",
             "notes": "Updated",
         }, follow_redirects=True)
         self.assertEqual(r.status_code, 200)

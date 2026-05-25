@@ -149,6 +149,11 @@ function fillDayModeFromDate(dateStr) {
 function toggleRecurringOptions() {
     var sel = document.getElementById('recurringSelect');
     var val = sel.value;
+    var isRecurring = val !== 'none';
+
+    var expiryInput = document.querySelector('input[name="expiry_date"]');
+    if (expiryInput) expiryInput.required = isRecurring;
+
     var rg = document.getElementById('recurringByGroup');
     rg.style.display = (val === 'monthly' || val === 'quarterly' || val === 'annual') ? 'block' : 'none';
     if (rg.style.display !== 'none') {
