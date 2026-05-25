@@ -3,10 +3,10 @@
 ## ✅ Completed
 
 ### Core Schema & Models
-- [x] SQLite schema — 9 tables (members, program_categories, sub_programs, sub_program_members, tasks, task_updates, events, app_config, users)
-- [x] All CRUD functions in models.py (~1065 lines)
-- [x] JSON seed data (seed_data.json) replacing Excel dependency
-- [x] openpyxl removed from requirements
+- [x] PostgreSQL schema — 9 tables (members, program_categories, sub_programs, sub_program_members, tasks, task_updates, events, app_config, users)
+- [x] All CRUD functions in models.py (~1197 lines)
+- [x] psycopg2 with _Connection wrapper, RealDictCursor, DATABASE_URL env var
+- [x] SQLite removed — ? → %s, datetime('now') → TO_CHAR(CURRENT_TIMESTAMP, ...), SERIAL PKs
 
 ### User Management (Multi-user)
 - [x] Login with email + password
@@ -73,31 +73,39 @@
 - [x] 404 error page
 - [x] Orphaned reference cleanup on delete (members, categories)
 - [x] Color-coded status/priority badges
-- [x] Version number in footer (v1.0.0)
+- [x] Version number in footer (v1.1.0)
+
+### Database Migration (SQLite → PostgreSQL)
+- [x] models.py rewritten: psycopg2, _Connection wrapper, SERIAL PKs
+- [x] app.py cleaned: ? → %s, datetime('now') → TO_CHAR, removed SQLite/Win/PyInstaller cruft
+- [x] test_all.py: TRUNCATE ... RESTART IDENTITY, PG-compatible assertions
+- [x] requirements.txt: flask, gunicorn, psycopg2-binary
+- [x] seed.py + seed_data.json removed (inline test data)
+- [x] All 114 tests pass against PostgreSQL 14
 
 ### Deployment
-- [x] Dockerfile (python:3.12-slim, gunicorn, --preload)
-- [x] fly.toml (256MB, ams volume, auto-stop/start)
+- [x] Dockerfile (python:3.12-slim, gunicorn, --bind 0.0.0.0:5000)
+- [x] fly.toml (256MB, sin region, no volume)
 - [x] .dockerignore
-- [x] GitHub Actions: PyInstaller build with UPX
-- [x] GitHub Actions: Fly.io auto-deploy on push to main
-- [x] requirements.txt (flask, gunicorn)
+- [x] GitHub Actions: Fly.io auto-deploy on push to main (needs FLY_API_TOKEN secret)
+- [x] requirements.txt (flask, gunicorn, psycopg2-binary)
+- [x] Deployed to Fly.io (Singapore) + Neon PostgreSQL (Singapore)
+- [x] Old Fly volumes cleaned up
 
 ### Testing
 - [x] 114 tests (model CRUD, route responses, workflows, edge cases, auth)
-- [x] All tests pass, 0 skipped
-- [x] Runs against isolated test_chms.db
+- [x] All tests pass on PostgreSQL, 0 skipped
+- [x] Runs against isolated chms_test database
 
 ---
 
-## 📋 Remaining
+## ⚠️ Remaining
 
-### P0 — Fly.io deployment (manual, one-time)
-- [ ] `fly volumes create chms_data --region ams --size 1`
-- [ ] `fly deploy`
+### P1 — GitHub Actions
+- [ ] Add `FLY_API_TOKEN` secret to GitHub repo (needed for auto-deploy on push to main)
 
-### P0 — GitHub Actions secret
-- [ ] Add `FLY_API_TOKEN` secret to repo (needed for auto-deploy)
+### P2 — Polish
+- [ ] Update context.md to reflect PostgreSQL architecture
 
 ---
 
@@ -120,8 +128,14 @@
 ### Testing
 ```bash
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-rm -f test_chms.db && python3 test_all.py
+DATABASE_URL="dbname=chms_test host=/tmp port=15432 user=erangadesaram" python3 -m pytest test_all.py -v
 # 114 tests, 0 failures
+```
+
+### Run locally
+```bash
+DATABASE_URL="dbname=chms_dev host=/tmp port=15432 user=erangadesaram" python3 app.py
+# Opens at http://127.0.0.1:5000
 ```
 
 ### Admin credentials

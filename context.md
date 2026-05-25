@@ -18,7 +18,7 @@ Replace the existing Excel-based planning committee tracker (`Planning committe.
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Backend | Flask 3.x (Python) | Lightweight, no ORM needed |
-| Database | SQLite 3 | Single file, auto-created, WAL mode |
+| Database | PostgreSQL 14+ via Neon | psycopg2-binary, DATABASE_URL env var |
 | Templates | Jinja2 | Ships with Flask |
 | Styling | Plain CSS | No frameworks; responsive, print styles |
 | Auth | Flask sessions + werkzeug | Password hashing, role-based access |
@@ -31,27 +31,25 @@ Replace the existing Excel-based planning committee tracker (`Planning committe.
 3. **Recurrence generation** — daily check via `before_request`, window `[tomorrow, tomorrow+7]`, idempotent via `(parent_id, generation)` uniqueness.
 4. **No external notifications** — in-app dashboard alerts only (due reminders, overdue warnings).
 5. **Color-coded badges** — Red/Green/Yellow/Blue for status/priority (novice-friendly).
-6. **Version number** — `v1.0.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
-7. **Fly.io + Docker** — gunicorn deployment with persistent SQLite volume.
-7. **Windows .exe build** — GitHub Actions + PyInstaller + UPX compression.
+6. **Version number** — `v1.1.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
+7. **PostgreSQL via psycopg2** — `_Connection` wrapper class provides `.execute()` returning `RealDictCursor`; `DATABASE_URL` env var; no SQLite fallback.
+8. **Fly.io + Docker** — gunicorn deployment with Neon PostgreSQL (Singapore region).
 
 ## Architecture
 
 ```
 chms/
-├── app.py                  # Flask application (30+ routes, ~1147 lines)
-├── models.py               # SQLite schema + all query functions (~1065 lines)
-├── seed.py                 # Reads seed_data.json, populates DB, creates admin user
-├── seed_data.json          # JSON seed data replacing sub-programs.xlsx
-├── test_all.py             # 114 tests, all pass
+├── app.py                  # Flask application (30+ routes, ~1271 lines)
+├── models.py               # PostgreSQL schema + all query functions (~1197 lines)
+├── test_all.py             # 114 tests for PostgreSQL, all pass
 ├── Dockerfile              # python:3.12-slim + gunicorn
-├── fly.toml                # Fly.io config (256MB, ams region, chms_data volume)
-├── requirements.txt        # flask, gunicorn
+├── fly.toml                # Fly.io config (256MB, sin region)
+├── requirements.txt        # flask, gunicorn, psycopg2-binary
 ├── context.md              # This file
 ├── todo.md                 # Task tracker
 ├── .dockerignore
 ├── static/
-│   └── style.css           # ~500 lines (responsive, badges, print, auth forms)
+│   └── style.css           # ~520 lines (responsive, badges, print, auth forms)
 ├── templates/              # 18 Jinja2 templates
 │   ├── base.html           # Auth-aware nav, flash messages, delete modal
 │   ├── 404.html
@@ -73,7 +71,6 @@ chms/
 │   ├── member_form.html    # Add/edit member
 │   ├── import.html         # CSV import form
 └── .github/workflows/
-    ├── build.yml           # PyInstaller Windows .exe
     └── fly-deploy.yml      # Auto-deploy to Fly.io on push to main
 ```
 
@@ -82,37 +79,60 @@ chms/
 ```sql
 -- Core tables (models.py:init_db)
 members
-  id, name, designation, phone, email, created_at
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL, designation TEXT, phone TEXT, email TEXT,
+  created_at TEXT DEFAULT TO_CHAR(CURRENT_TIMESTAMP, ...)
 
 program_categories
-  id, name, description, sort_order, created_at
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE, description TEXT,
+  sort_order INTEGER DEFAULT 0, created_at TEXT
 
 sub_programs
-  id, program_category_id FK, title, description, due_date,
-  in_charge_id FK(members), recurring_type, add_to_calendar,
-  type_flag, notes, parent_id FK(sub_programs), generation, created_at, updated_at
+  id SERIAL PRIMARY KEY,
+  program_category_id INTEGER NOT NULL REFERENCES program_categories(id),
+  title TEXT NOT NULL, description TEXT, due_date TEXT,
+  in_charge_id INTEGER REFERENCES members(id),
+  recurring_type TEXT CHECK(in 'none','weekly','bi_weekly','monthly','quarterly','annual'),
+  add_to_calendar INTEGER DEFAULT 0,
+  type_flag TEXT CHECK(in 'Program','Meeting','Event','Service'),
+  notes TEXT, parent_id INTEGER REFERENCES sub_programs(id), generation INTEGER,
+  created_at TEXT, updated_at TEXT
 
 sub_program_members
-  id, sub_program_id FK CASCADE, member_id FK CASCADE, UNIQUE pair
+  id SERIAL PRIMARY KEY,
+  sub_program_id INTEGER REFERENCES sub_programs(id) ON DELETE CASCADE,
+  member_id INTEGER REFERENCES members(id) ON DELETE CASCADE,
+  UNIQUE(sub_program_id, member_id)
 
 tasks
-  id, sub_program_id FK CASCADE, title, due_date,
-  assigned_to FK(members), status, priority, created_at, completed_at
+  id SERIAL PRIMARY KEY,
+  sub_program_id INTEGER REFERENCES sub_programs(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, due_date TEXT,
+  assigned_to INTEGER REFERENCES members(id),
+  status TEXT DEFAULT 'open', priority TEXT DEFAULT 'medium',
+  created_at TEXT, completed_at TEXT
 
 task_updates
-  id, task_id FK CASCADE, note, created_at
+  id SERIAL PRIMARY KEY,
+  task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+  note TEXT NOT NULL, created_at TEXT
 
 events
-  id, title, sub_program_id FK, recurring_type, type_flag,
-  start_date, notes, created_at
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL, sub_program_id INTEGER REFERENCES sub_programs(id),
+  recurring_type TEXT DEFAULT 'none', type_flag TEXT DEFAULT 'Event',
+  start_date TEXT NOT NULL, notes TEXT, created_at TEXT
 
 app_config
-  key TEXT PK, value TEXT
+  key TEXT PRIMARY KEY, value TEXT
 
 users
-  id, username UNIQUE, email UNIQUE, password_hash,
-  role CHECK(admin/power_user/viewer), display_name,
-  is_approved, created_at
+  id SERIAL PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT CHECK(admin/power_user/viewer) NOT NULL,
+  display_name TEXT, is_approved INTEGER DEFAULT 0, created_at TEXT
 ```
 
 ## Route Map
@@ -198,16 +218,20 @@ users
 ## Code Conventions
 
 ### models.py
-- Every function opens and closes its own connection
-- `get_conn()` returns `sqlite3.Row`-based connections with WAL mode + foreign keys
+- Every function opens and closes its own connection via `get_conn()`
+- `get_conn()` returns a `_Connection` wrapper around `psycopg2.connect(DATABASE_URL)`
+- `_Connection.execute()` returns `RealDictCursor` (`.fetchone()` returns dict-like rows)
 - `init_db()` is idempotent (uses `CREATE TABLE IF NOT EXISTS`)
 - Derived status/priority computed in Python (not stored)
 - Recurrence generation uses `(parent_id, generation)` uniqueness to prevent duplicates
+- All date comparisons use ISO strings ("YYYY-MM-DD") for TEXT-column compatibility
+- `add_sub_program()` with `force=True` triggers immediate recurrence generation
 
 ### app.py
 - Template globals: `today()`, `status_color()`, `priority_color()`, `get_task_updates()`
 - Flash messages with categories: `"success"` (green), `"error"` (red)
 - `@login_required` / `@require_write` / `@require_admin` decorators on all routes
+- Context processor injects `current_user`, `categories`, `app_version`, `now`
 
 ### Templates (Jinja2)
 - All extend `base.html`
@@ -230,11 +254,10 @@ users
 pip install -r requirements.txt
 
 # Run
-cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-python3 app.py
+DATABASE_URL="dbname=chms_dev host=/tmp port=15432 user=erangadesaram" python3 app.py
 
 # Opens at http://127.0.0.1:5000
-# Database auto-created at ~/.chms/chms.db (Linux) or %APPDATA%/ChMS/chms.db (Windows)
+# Tables auto-created on first request
 ```
 
 ### First login
@@ -244,36 +267,36 @@ python3 app.py
 ### Environment variables
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CHMS_DB_PATH` | `~/.chms/chms.db` | Override database location |
+| `DATABASE_URL` | (required) | PostgreSQL connection string |
 | `CHMS_ADMIN_PASSWORD` | `qazcde@123` | Force-reset admin password on startup |
-| `CHMS_DATA_DIR` | `~/.chms` | Override data directory |
-| `FLY_APP_NAME` | — | Auto-detects Fly.io deployment |
+| `CHMS_SECRET_KEY` | `chms-secret-key` | Flask session secret key |
 | `PORT` | `5000` | HTTP port |
 
 ### Reset database
 ```bash
-rm -f ~/.chms/chms.db && cd /path/to/chms && python3 app.py
+psql -h /tmp -p 15432 -d postgres -c "DROP DATABASE chms_dev"
+createdb chms_dev
 ```
 
 ## Deployment
 
-### Fly.io
+### Fly.io + Neon
 ```bash
-flyctl auth login
-fly volumes create chms_data --region ams --size 1
-fly deploy
+# Set secrets
+flyctl secrets set DATABASE_URL="<neon-connection-string>"
+flyctl secrets set CHMS_ADMIN_PASSWORD="<password>"
+
+# Deploy
+flyctl deploy
 ```
 
 ### GitHub Actions auto-deploy
 Push to `main` → triggers `.github/workflows/fly-deploy.yml`. Requires `FLY_API_TOKEN` secret in repo.
 
-### Windows .exe
-Push to `main` → triggers `.github/workflows/build.yml`. Artifact: `ChMS.exe`.
-
 ## Testing
 ```bash
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-rm -f test_chms.db && python3 test_all.py
+DATABASE_URL="dbname=chms_test host=/tmp port=15432 user=erangadesaram" python3 -m pytest test_all.py -v
 # 114 tests, 0 failures, 0 skipped
 ```
 
