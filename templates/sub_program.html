@@ -72,6 +72,7 @@
                             </a>
                         </td>
                         <td class="actions">
+                            <a href="#" onclick="toggleTaskEdit({{ t.id }});return false;" class="btn btn-sm btn-outline">Edit</a>
                             <form method="POST" action="{{ url_for('task_toggle', tid=t.id) }}" style="display:inline;">
                                 <button type="submit" class="btn btn-sm {% if t.status == 'completed' %}btn-outline{% else %}btn-primary{% endif %}">
                                     {% if t.status == 'completed' %}Reopen{% else %}Done{% endif %}
@@ -100,6 +101,54 @@
                                 <input type="hidden" name="action" value="add_update">
                                 <input type="text" name="note" placeholder="Add a follow-up note..." style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
                                 <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr class="task-edit-row" id="edit-{{ t.id }}" style="display:none;">
+                        <td colspan="8" style="padding:12px 16px;background:#fffdf5;">
+                            <form method="POST" action="{{ url_for('task_update', tid=t.id) }}" class="inline-edit-form">
+                                <input type="hidden" name="action" value="update">
+                                <div class="form-row">
+                                    <div class="form-group" style="flex:3;">
+                                        <label>Title</label>
+                                        <input type="text" name="title" value="{{ t.title }}" required>
+                                    </div>
+                                    <div class="form-group" style="flex:1;">
+                                        <label>Due</label>
+                                        <input type="date" name="due_date" value="{{ t.due_date or '' }}" max="{{ sub.due_date or '' }}">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group" style="flex:1;">
+                                        <label>Assigned To</label>
+                                        <select name="assigned_to">
+                                            <option value="">— None —</option>
+                                            {% for m in team %}
+                                            <option value="{{ m.id }}" {% if t.assigned_to == m.id %}selected{% endif %}>{{ m.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="flex:1;">
+                                        <label>Priority</label>
+                                        <select name="priority">
+                                            {% for p in priorities %}
+                                            <option value="{{ p }}" {% if t.priority == p %}selected{% endif %}>{{ p }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="flex:1;">
+                                        <label>Status</label>
+                                        <select name="status">
+                                            {% for s in statuses %}
+                                            <option value="{{ s }}" {% if t.status == s %}selected{% endif %}>{{ s }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-actions" style="border:none;padding:0;margin-top:8px;">
+                                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="toggleTaskEdit({{ t.id }})">Cancel</button>
+                                </div>
                             </form>
                         </td>
                     </tr>
@@ -182,6 +231,10 @@
 <script>
 function toggleTaskUpdates(taskId) {
     var row = document.getElementById('updates-' + taskId);
+    if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+function toggleTaskEdit(taskId) {
+    var row = document.getElementById('edit-' + taskId);
     if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
 }
 </script>

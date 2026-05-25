@@ -339,6 +339,10 @@ def delete_sub_program(sub_id):
     if row["c"] > 0:
         conn.close()
         return False
+    # Delete generated children first (recurring instances)
+    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id IN (SELECT id FROM sub_programs WHERE parent_id=?)", (sub_id,))
+    conn.execute("DELETE FROM sub_programs WHERE parent_id=?", (sub_id,))
+    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id=?", (sub_id,))
     conn.execute("DELETE FROM sub_programs WHERE id=?", (sub_id,))
     conn.commit()
     conn.close()
@@ -854,14 +858,16 @@ def set_config(key, value):
     conn.close()
 
 
-def generate_recurring_instances():
-    last_check = get_config("last_recurrence_check", "2000-01-01")
+def generate_recurring_instances(force=False):
     today_dt = date.today()
     today_iso = today_dt.isoformat()
-    cutoff = (today_dt + timedelta(days=7)).isoformat()
+    ref_date = today_dt + timedelta(days=1)
+    cutoff_date = ref_date + timedelta(days=7)
 
-    if last_check >= today_iso:
-        return 0
+    if not force:
+        last_check = get_config("last_recurrence_check", "2000-01-01")
+        if last_check >= today_iso:
+            return 0
 
     created = 0
     conn = get_conn()
@@ -881,9 +887,9 @@ def generate_recurring_instances():
 
         while True:
             next_date = original_date + delta * gen
-            if next_date > today_dt + timedelta(days=7):
+            if next_date > cutoff_date:
                 break
-            if next_date < today_dt:
+            if next_date < ref_date:
                 gen += 1
                 continue
 
@@ -954,6 +960,16 @@ def generate_recurring_instances():
     if created:
         set_config("last_recurrence_check", today_iso)
     return created
+
+
+def count_generated_children(sub_program_id):
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM sub_programs WHERE parent_id=?",
+        (sub_program_id,),
+    ).fetchone()["c"]
+    conn.close()
+    return count
 
 
 # ─── User Management ─────────────────────────────────────

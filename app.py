@@ -14,6 +14,7 @@ from flask import (
 
 from models import (
     generate_recurring_instances,
+    count_generated_children,
     get_members, get_member, add_member, update_member, delete_member,
     get_program_categories, get_program_category,
     add_program_category, update_program_category, delete_program_category,
@@ -463,6 +464,7 @@ def sub_program_add():
         for mid in member_ids:
             add_sub_program_member(sub_id, int(mid))
 
+        generate_recurring_instances(force=True)
         flash("Sub-program created", "success")
         return redirect(url_for("program_category", cat_id=request.form["program_category_id"]))
     members = get_members()
@@ -482,14 +484,32 @@ def sub_program_edit(sub_id):
         flash("Sub-program not found", "error")
         return redirect(url_for("programs_landing"))
     if request.method == "POST":
+        new_due = request.form.get("due_date") or None
+        new_recurring = request.form.get("recurring_type", "none")
+
+        # Block editing due_date or recurring_type on a base that has generated children
+        if sub["recurring_type"] != "none" and sub["parent_id"] is None:
+            child_count = count_generated_children(sub_id)
+            if child_count > 0:
+                due_changed = new_due != sub["due_date"]
+                recurring_changed = new_recurring != sub["recurring_type"]
+                if due_changed or recurring_changed:
+                    child_dates = get_conn().execute(
+                        "SELECT due_date FROM sub_programs WHERE parent_id=? ORDER BY due_date",
+                        (sub_id,),
+                    ).fetchall()
+                    dates = ", ".join(r["due_date"] for r in child_dates[:3])
+                    flash(f"Cannot change due date or recurrence type while generated instances exist (due {dates}…). Delete them first.", "error")
+                    return redirect(url_for("sub_program_edit", sub_id=sub_id))
+
         update_sub_program(
             sub_id=sub_id,
             category_id=int(request.form["program_category_id"]),
             title=request.form["title"],
             description=request.form.get("description", ""),
-            due_date=request.form.get("due_date") or None,
+            due_date=new_due,
             in_charge_id=request.form.get("in_charge_id", type=int),
-            recurring_type=request.form.get("recurring_type", "none"),
+            recurring_type=new_recurring,
             add_to_calendar=request.form.get("add_to_calendar", "0") == "1",
             type_flag=request.form.get("type_flag", "Program"),
             notes=request.form.get("notes", ""),
@@ -497,7 +517,6 @@ def sub_program_edit(sub_id):
         # Update members
         conn = None
         try:
-            from models import get_conn
             conn = get_conn()
             conn.execute("DELETE FROM sub_program_members WHERE sub_program_id=?", (sub_id,))
             member_ids = request.form.getlist("member_ids")
@@ -510,6 +529,9 @@ def sub_program_edit(sub_id):
         finally:
             if conn:
                 conn.close()
+
+        # Auto-run recurrence generation
+        generate_recurring_instances(force=True)
 
         flash("Sub-program updated", "success")
         return redirect(url_for("sub_program_detail", sub_id=sub_id))
@@ -767,6 +789,7 @@ def event_add():
                 priority="medium",
             )
 
+        generate_recurring_instances(force=True)
         flash("Event added", "success")
         rt = request.form.get("recurring_type", "none")
         if rt != "none":
@@ -791,6 +814,7 @@ def event_edit(eid):
     if not event:
         flash("Event not found", "error")
         return redirect(url_for("calendar_view"))
+
     update_event(
         event_id=eid,
         title=request.form["title"],
@@ -800,7 +824,9 @@ def event_edit(eid):
         start_date=request.form["start_date"],
         notes=request.form.get("notes", ""),
     )
+    generate_recurring_instances(force=True)
     flash("Event updated", "success")
+
     rt = request.form.get("recurring_type", event["recurring_type"])
     if rt != "none":
         next_dates = get_next_recurrence_dates(request.form["start_date"], rt, 3)

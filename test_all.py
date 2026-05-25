@@ -300,8 +300,8 @@ class TestRecurrence(unittest.TestCase):
         c1 = generate_recurring_instances()
         set_config("last_recurrence_check", "2000-01-01")
         c2 = generate_recurring_instances()
-        # Second run should produce the same count (no duplicates)
-        self.assertEqual(c1, c2)
+        # Second run should create no new instances (all (parent_id, generation) pairs exist)
+        self.assertEqual(c2, 0)
 
     def test_recurrence_skips_when_already_checked(self):
         today_iso = date.today().isoformat()
@@ -790,8 +790,8 @@ class TestWorkflows(unittest.TestCase):
         # Verify idempotent
         set_config("last_recurrence_check", "2000-01-01")
         count2 = generate_recurring_instances()
-        self.assertEqual(count, count2,
-                         "Recurrence generation should be idempotent")
+        self.assertEqual(count2, 0,
+                         "Recurrence generation should be idempotent — second call creates nothing")
         delete_sub_program(sp_id)
 
     def test_workflow_event_date_before_sub_program_due(self):
