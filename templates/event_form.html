@@ -21,19 +21,62 @@
             </select>
         </div>
     </div>
-    <div class="form-group">
-        <label>Date *</label>
-        <input type="date" name="start_date" value="{{ event.start_date[:10] if event else '' }}" required>
-    </div>
     <div class="form-row">
         <div class="form-group">
+            <label>Date *</label>
+            <input type="date" name="start_date" value="{{ event.start_date[:10] if event else '' }}" required>
+        </div>
+        <div class="form-group">
             <label>Recurring</label>
-            <select name="recurring_type" id="recurringSelect" onchange="toggleExpiryDate()">
+            <select name="recurring_type" id="recurringSelect" onchange="toggleRecurringOptions()">
                 {% for r in recurring_types %}
                 <option value="{{ r }}" {% if event and event.recurring_type == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
             </select>
         </div>
+    </div>
+    <div id="recurringByGroup" style="{% if not event or event.recurring_type in ('none','weekly','bi_weekly') %}display:none;{% endif %}">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Recurring Mode</label>
+                <div style="display:flex;gap:16px;padding-top:6px;">
+                    <label><input type="radio" name="recurring_by" value="date"
+                        {% if not event or event.recurring_by == 'date' %}checked{% endif %}
+                        onchange="toggleRecurringMode()"> Same date each {{ 'month' if event and event.recurring_type in ('monthly','quarterly') else 'year' }}</label>
+                    <label><input type="radio" name="recurring_by" value="day"
+                        {% if event and event.recurring_by == 'day' %}checked{% endif %}
+                        onchange="toggleRecurringMode()"> Same weekday pattern</label>
+                </div>
+            </div>
+        </div>
+        <div id="recurringDayOptions" style="{% if not event or event.recurring_by != 'day' %}display:none;{% endif %}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Ordinal</label>
+                    <select name="recurring_ordinal">
+                        <option value="1" {% if event and event.recurring_ordinal == 1 %}selected{% endif %}>1st</option>
+                        <option value="2" {% if event and event.recurring_ordinal == 2 %}selected{% endif %}>2nd</option>
+                        <option value="3" {% if event and event.recurring_ordinal == 3 %}selected{% endif %}>3rd</option>
+                        <option value="4" {% if event and event.recurring_ordinal == 4 %}selected{% endif %}>4th</option>
+                        <option value="5" {% if event and event.recurring_ordinal == 5 %}selected{% endif %}>Last</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Weekday</label>
+                    <select name="recurring_weekday">
+                        <option value="0" {% if event and event.recurring_weekday == 0 %}selected{% endif %}>Monday</option>
+                        <option value="1" {% if event and event.recurring_weekday == 1 %}selected{% endif %}>Tuesday</option>
+                        <option value="2" {% if event and event.recurring_weekday == 2 %}selected{% endif %}>Wednesday</option>
+                        <option value="3" {% if event and event.recurring_weekday == 3 %}selected{% endif %}>Thursday</option>
+                        <option value="4" {% if event and event.recurring_weekday == 4 %}selected{% endif %}>Friday</option>
+                        <option value="5" {% if event and event.recurring_weekday == 5 %}selected{% endif %}>Saturday</option>
+                        <option value="6" {% if event and event.recurring_weekday == 6 %}selected{% endif %}>Sunday</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="form-row">
         <div class="form-group" id="expiryGroup" style="{% if not event or event.recurring_type == 'none' %}display:none;{% endif %}">
             <label>Recurring Expiry Date</label>
             <input type="date" name="expiry_date" value="{{ event.expiry_date[:10] if event and event.expiry_date else '' }}">
@@ -73,11 +116,60 @@
 var subsData = {{ subs|tojson }};
 var membersData = {{ members|tojson }};
 
-function toggleExpiryDate() {
-    var sel = document.getElementById('recurringSelect');
-    var g = document.getElementById('expiryGroup');
-    g.style.display = sel.value === 'none' ? 'none' : 'block';
+function computeOrdinalWeekday(dateStr) {
+    if (!dateStr) return { ordinal: 1, weekday: 0 };
+    var d = new Date(dateStr + 'T12:00:00');
+    var jsWeekday = d.getDay(); // 0=Sun, 6=Sat
+    var pyWeekday = (jsWeekday + 6) % 7; // to Python: 0=Mon, 6=Sun
+    var day = d.getDate();
+    var ordinal = Math.ceil(day / 7);
+    return { ordinal: ordinal, weekday: pyWeekday };
 }
+
+function fillDayModeFromDate(dateStr) {
+    var ow = computeOrdinalWeekday(dateStr);
+    document.querySelector('select[name="recurring_ordinal"]').value = ow.ordinal;
+    document.querySelector('select[name="recurring_weekday"]').value = ow.weekday;
+}
+
+function toggleRecurringOptions() {
+    var sel = document.getElementById('recurringSelect');
+    var val = sel.value;
+    var g = document.getElementById('expiryGroup');
+    g.style.display = val === 'none' ? 'none' : 'block';
+    var rg = document.getElementById('recurringByGroup');
+    rg.style.display = (val === 'monthly' || val === 'quarterly' || val === 'annual') ? 'block' : 'none';
+    if (rg.style.display === 'none') {
+        document.getElementById('recurringDayOptions').style.display = 'none';
+    } else {
+        toggleRecurringMode();
+    }
+}
+
+function toggleRecurringMode() {
+    var by = document.querySelector('input[name="recurring_by"]:checked');
+    var dg = document.getElementById('recurringDayOptions');
+    var show = by && by.value === 'day';
+    dg.style.display = show ? 'block' : 'none';
+    if (show) {
+        var dateInput = document.querySelector('input[name="start_date"]');
+        if (dateInput && dateInput.value) {
+            fillDayModeFromDate(dateInput.value);
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var dateInput = document.querySelector('input[name="start_date"]');
+    if (dateInput) {
+        dateInput.addEventListener('change', function() {
+            var by = document.querySelector('input[name="recurring_by"]:checked');
+            if (by && by.value === 'day') {
+                fillDayModeFromDate(this.value);
+            }
+        });
+    }
+});
 
 function updateAssignees() {
     var sel = document.getElementById('subSelect');
@@ -94,9 +186,11 @@ function updateAssignees() {
         assigneeSel.appendChild(opt);
     });
 }
+
 document.addEventListener('DOMContentLoaded', function() {
     var sel = document.getElementById('subSelect');
     if (sel.value) updateAssignees();
+    toggleRecurringOptions();
 });
 </script>
 {% endblock %}

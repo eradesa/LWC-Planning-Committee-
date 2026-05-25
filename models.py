@@ -1,7 +1,9 @@
 import os
 import psycopg2
 import psycopg2.extras
+from calendar import monthcalendar
 from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -170,6 +172,20 @@ def init_db():
         EXCEPTION WHEN duplicate_column THEN NULL;
         END $$;
     """)
+    for col_sql in [
+        "ALTER TABLE events ADD COLUMN recurring_by VARCHAR(10) DEFAULT 'date'",
+        "ALTER TABLE events ADD COLUMN recurring_weekday INTEGER",
+        "ALTER TABLE events ADD COLUMN recurring_ordinal INTEGER",
+        "ALTER TABLE sub_programs ADD COLUMN recurring_by VARCHAR(10) DEFAULT 'date'",
+        "ALTER TABLE sub_programs ADD COLUMN recurring_weekday INTEGER",
+        "ALTER TABLE sub_programs ADD COLUMN recurring_ordinal INTEGER",
+    ]:
+        conn.execute(f"""
+            DO $$ BEGIN
+                {col_sql};
+            EXCEPTION WHEN duplicate_column THEN NULL;
+            END $$;
+        """)
     conn.commit()
     conn.close()
 
@@ -316,17 +332,20 @@ def get_sub_program(sub_program_id):
 
 
 def add_sub_program(category_id, title, description, due_date, in_charge_id,
-                    recurring_type, add_to_calendar, type_flag, notes, parent_id=None):
+                    recurring_type, add_to_calendar, type_flag, notes, parent_id=None,
+                    recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     conn = get_conn()
     cur = conn.execute("""
         INSERT INTO sub_programs 
             (program_category_id, title, description, due_date, in_charge_id,
-             recurring_type, add_to_calendar, type_flag, notes, parent_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             recurring_type, add_to_calendar, type_flag, notes, parent_id,
+             recurring_by, recurring_weekday, recurring_ordinal)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id
     """, (category_id, title.strip(), description.strip(), due_date or None,
           in_charge_id or None, recurring_type, 1 if add_to_calendar else 0,
-          type_flag, notes.strip(), parent_id))
+          type_flag, notes.strip(), parent_id,
+          recurring_by, recurring_weekday, recurring_ordinal))
     sub_id = cur.fetchone()["id"]
     conn.commit()
     conn.close()
@@ -334,17 +353,21 @@ def add_sub_program(category_id, title, description, due_date, in_charge_id,
 
 
 def update_sub_program(sub_id, category_id, title, description, due_date,
-                       in_charge_id, recurring_type, add_to_calendar, type_flag, notes):
+                       in_charge_id, recurring_type, add_to_calendar, type_flag, notes,
+                       recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     conn = get_conn()
     conn.execute("""
         UPDATE sub_programs SET
             program_category_id=%s, title=%s, description=%s, due_date=%s,
             in_charge_id=%s, recurring_type=%s, add_to_calendar=%s, 
-            type_flag=%s, notes=%s, updated_at=TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+            type_flag=%s, notes=%s, recurring_by=%s,
+            recurring_weekday=%s, recurring_ordinal=%s,
+            updated_at=TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
         WHERE id=%s
     """, (category_id, title.strip(), description.strip(), due_date or None,
           in_charge_id or None, recurring_type, 1 if add_to_calendar else 0,
-          type_flag, notes.strip(), sub_id))
+          type_flag, notes.strip(),
+          recurring_by, recurring_weekday, recurring_ordinal, sub_id))
     conn.commit()
     conn.close()
 
@@ -684,7 +707,7 @@ def get_linkable_sub_programs():
         LEFT JOIN program_categories pc ON sp.program_category_id = pc.id
         LEFT JOIN members m ON sp.in_charge_id = m.id
         WHERE sp.due_date IS NULL OR sp.due_date >= %s
-        ORDER BY sp.due_date
+        ORDER BY sp.title ASC
     """, (today,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -715,8 +738,7 @@ def get_events(year=None, month=None):
         """).fetchall()
         for ev in recurring:
             ev = dict(ev)
-            delta = RECURRENCE_DELTA.get(ev["recurring_type"])
-            if not delta:
+            if ev["recurring_type"] in ("none",):
                 continue
             seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
             raw = ev.get("expiry_date")
@@ -729,7 +751,11 @@ def get_events(year=None, month=None):
                 last_of_month = date(year, month + 1, 1) - timedelta(days=1)
             gen = 0
             while True:
-                inst = seed + delta * gen
+                inst = _advance_date(
+                    seed, ev["recurring_type"], gen,
+                    ev.get("recurring_by", "date"),
+                    ev.get("recurring_weekday"), ev.get("recurring_ordinal"),
+                )
                 if inst > last_of_month:
                     break
                 if expiry and inst > expiry:
@@ -756,13 +782,16 @@ def get_event(event_id):
     return dict(row) if row else None
 
 
-def add_event(title, sub_program_id, recurring_type, type_flag, start_date, notes, expiry_date=None):
+def add_event(title, sub_program_id, recurring_type, type_flag, start_date, notes, expiry_date=None,
+              recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     conn = get_conn()
     sql = ("INSERT INTO events (title, sub_program_id, recurring_type, "
-           "type_flag, start_date, expiry_date, notes) "
-           "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id")
+           "type_flag, start_date, expiry_date, notes, "
+           "recurring_by, recurring_weekday, recurring_ordinal) "
+           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id")
     cur = conn.execute(sql, (title.strip(), sub_program_id or None, recurring_type,
-                             type_flag, start_date, expiry_date or None, notes.strip()))
+                             type_flag, start_date, expiry_date or None, notes.strip(),
+                             recurring_by, recurring_weekday, recurring_ordinal))
     event_id = cur.fetchone()["id"]
     conn.commit()
     conn.close()
@@ -770,12 +799,15 @@ def add_event(title, sub_program_id, recurring_type, type_flag, start_date, note
 
 
 def update_event(event_id, title, sub_program_id, recurring_type, type_flag,
-                 start_date, notes, expiry_date=None):
+                 start_date, notes, expiry_date=None,
+                 recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     conn = get_conn()
     sql = ("UPDATE events SET title=%s, sub_program_id=%s, recurring_type=%s, "
-           "type_flag=%s, start_date=%s, expiry_date=%s, notes=%s WHERE id=%s")
+           "type_flag=%s, start_date=%s, expiry_date=%s, notes=%s, "
+           "recurring_by=%s, recurring_weekday=%s, recurring_ordinal=%s WHERE id=%s")
     conn.execute(sql, (title.strip(), sub_program_id or None, recurring_type,
-                       type_flag, start_date, expiry_date or None, notes.strip(), event_id))
+                       type_flag, start_date, expiry_date or None, notes.strip(),
+                       recurring_by, recurring_weekday, recurring_ordinal, event_id))
     conn.commit()
     conn.close()
 
@@ -889,15 +921,15 @@ def get_calendar_entries_from_date(year, month):
 def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
     """Expand recurring standalone events into a date range."""
     recurring = conn.execute("""
-        SELECT id, title, type_flag, start_date, expiry_date, recurring_type, notes
+        SELECT id, title, type_flag, start_date, expiry_date, recurring_type,
+               recurring_by, recurring_weekday, recurring_ordinal, notes
         FROM events
         WHERE recurring_type != 'none'
     """).fetchall()
 
     for ev in recurring:
         ev = dict(ev)
-        delta = RECURRENCE_DELTA.get(ev["recurring_type"])
-        if not delta:
+        if ev["recurring_type"] in ("none",):
             continue
         seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
         raw_exp = ev.get("expiry_date")
@@ -905,7 +937,11 @@ def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
 
         gen = 0
         while True:
-            instance_date = seed + delta * gen
+            instance_date = _advance_date(
+                seed, ev["recurring_type"], gen,
+                ev.get("recurring_by", "date"),
+                ev.get("recurring_weekday"), ev.get("recurring_ordinal"),
+            )
             if instance_date > end_date:
                 break
             if expiry and instance_date > expiry:
@@ -924,15 +960,15 @@ def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
 def _expand_recurring_events(conn, year, month, entries):
     """Expand recurring standalone events into a given month, appending to entries list."""
     recurring = conn.execute("""
-        SELECT id, title, type_flag, start_date, expiry_date, recurring_type, notes
+        SELECT id, title, type_flag, start_date, expiry_date, recurring_type,
+               recurring_by, recurring_weekday, recurring_ordinal, notes
         FROM events
         WHERE recurring_type != 'none'
     """).fetchall()
 
     for ev in recurring:
         ev = dict(ev)
-        delta = RECURRENCE_DELTA.get(ev["recurring_type"])
-        if not delta:
+        if ev["recurring_type"] in ("none",):
             continue
         seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
         raw_exp = ev.get("expiry_date")
@@ -945,7 +981,11 @@ def _expand_recurring_events(conn, year, month, entries):
 
         gen = 0
         while True:
-            instance_date = seed + delta * gen
+            instance_date = _advance_date(
+                seed, ev["recurring_type"], gen,
+                ev.get("recurring_by", "date"),
+                ev.get("recurring_weekday"), ev.get("recurring_ordinal"),
+            )
             if instance_date > last_of_month:
                 break
             if expiry and instance_date > expiry:
@@ -963,20 +1003,58 @@ def _expand_recurring_events(conn, year, month, entries):
 
 # ─── Recurrence ──────────────────────────────────────────
 
-RECURRENCE_DELTA = {
-    "weekly": timedelta(days=7),
-    "bi_weekly": timedelta(days=14),
-    "monthly": timedelta(days=30),
-    "quarterly": timedelta(days=91),
-    "annual": timedelta(days=365),
-}
+def _nth_weekday_of_month(year, month, weekday, ordinal):
+    """Return date of Nth weekday in a month. ordinal 1-4 = 1st-4th, 5 = last."""
+    cal = monthcalendar(year, month)
+    days = [w[weekday] for w in cal if w[weekday] != 0]
+    if ordinal == 5:
+        return date(year, month, days[-1])
+    return date(year, month, days[min(ordinal - 1, len(days) - 1)])
 
 
-def get_next_recurrence_dates(start_date, recurring_type, count=3, expiry_date=None):
+def _ordinal_of_weekday_in_month(d):
+    """Which occurrence (1-5) of its weekday is d within its month?"""
+    cal = monthcalendar(d.year, d.month)
+    days = [w[d.weekday()] for w in cal if w[d.weekday()] != 0]
+    for i, day in enumerate(days):
+        if day == d.day:
+            return i + 1
+    return 5
+
+
+def _advance_date(seed, freq, gen, recurring_by="date",
+                  recurring_weekday=None, recurring_ordinal=None):
+    if freq == "weekly":
+        return seed + relativedelta(weeks=gen)
+    if freq == "bi_weekly":
+        return seed + relativedelta(weeks=2 * gen)
+    if recurring_by == "date":
+        if freq == "monthly":
+            return seed + relativedelta(months=gen)
+        if freq == "quarterly":
+            return seed + relativedelta(months=3 * gen)
+        if freq == "annual":
+            return seed + relativedelta(years=gen)
+        return seed
+    # recurring_by == "day"
+    if freq == "monthly":
+        target_month = seed.month + gen
+    elif freq == "quarterly":
+        target_month = seed.month + gen * 3
+    elif freq == "annual":
+        target_month = seed.month
+    else:
+        return seed
+    target_year = seed.year + (target_month - 1) // 12
+    target_month = ((target_month - 1) % 12) + 1
+    wd = recurring_weekday if recurring_weekday is not None else seed.weekday()
+    ord = recurring_ordinal if recurring_ordinal is not None else _ordinal_of_weekday_in_month(seed)
+    return _nth_weekday_of_month(target_year, target_month, wd, ord)
+
+
+def get_next_recurrence_dates(start_date, recurring_type, count=3, expiry_date=None,
+                              recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     if recurring_type == "none":
-        return []
-    delta = RECURRENCE_DELTA.get(recurring_type)
-    if not delta:
         return []
     seed = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
     expiry = datetime.strptime(expiry_date[:10], "%Y-%m-%d").date() if expiry_date else None
@@ -984,7 +1062,8 @@ def get_next_recurrence_dates(start_date, recurring_type, count=3, expiry_date=N
     result = []
     gen = 1
     while len(result) < count:
-        inst = seed + delta * gen
+        inst = _advance_date(seed, recurring_type, gen,
+                             recurring_by, recurring_weekday, recurring_ordinal)
         if expiry and inst > expiry:
             break
         if inst > today:
@@ -1035,14 +1114,17 @@ def generate_recurring_instances(force=False):
 
     for base in base_subs:
         base = dict(base)
-        delta = RECURRENCE_DELTA.get(base["recurring_type"])
-        if not delta:
+        if base["recurring_type"] in ("none",):
             continue
         original_date = datetime.strptime(base["due_date"], "%Y-%m-%d").date()
         gen = 1
 
         while True:
-            next_date = original_date + delta * gen
+            next_date = _advance_date(
+                original_date, base["recurring_type"], gen,
+                base.get("recurring_by", "date"),
+                base.get("recurring_weekday"), base.get("recurring_ordinal"),
+            )
             if next_date > cutoff_date:
                 break
             if next_date < ref_date:
@@ -1062,14 +1144,17 @@ def generate_recurring_instances(force=False):
             cur = conn.execute("""
                 INSERT INTO sub_programs 
                     (program_category_id, title, description, due_date, in_charge_id,
-                     recurring_type, add_to_calendar, type_flag, notes, parent_id, generation)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     recurring_type, add_to_calendar, type_flag, notes, parent_id, generation,
+                     recurring_by, recurring_weekday, recurring_ordinal)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
             """, (
                 base["program_category_id"], base["title"], base["description"],
                 next_iso, base["in_charge_id"], base["recurring_type"],
                 base["add_to_calendar"], base["type_flag"], base["notes"],
                 base["id"], gen,
+                base.get("recurring_by", "date"),
+                base.get("recurring_weekday"), base.get("recurring_ordinal"),
             ))
             new_sp_id = cur.fetchone()["id"]
 
@@ -1101,10 +1186,14 @@ def generate_recurring_instances(force=False):
 
             if base["add_to_calendar"]:
                 conn.execute("""
-                    INSERT INTO events (title, sub_program_id, type_flag, start_date, recurring_type, notes)
-                    VALUES (%s,%s,%s,%s,%s,%s)
+                    INSERT INTO events (title, sub_program_id, type_flag, start_date,
+                                       recurring_type, notes, recurring_by,
+                                       recurring_weekday, recurring_ordinal)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (base["title"], new_sp_id, base["type_flag"], next_iso,
-                      base["recurring_type"], ""))
+                      base["recurring_type"], "",
+                      base.get("recurring_by", "date"),
+                      base.get("recurring_weekday"), base.get("recurring_ordinal")))
 
             created += 1
             gen += 1

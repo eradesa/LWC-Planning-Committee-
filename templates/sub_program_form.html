@@ -42,7 +42,7 @@
     <div class="form-row">
         <div class="form-group">
             <label>Recurring</label>
-            <select name="recurring_type">
+            <select name="recurring_type" id="recurringSelect" onchange="toggleRecurringOptions()">
                 {% for r in recurring_types %}
                 <option value="{{ r }}" {% if sub and sub.recurring_type == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
@@ -55,6 +55,47 @@
                 <option value="{{ f }}" {% if sub and sub.type_flag == f %}selected{% endif %}>{{ f }}</option>
                 {% endfor %}
             </select>
+        </div>
+    </div>
+    <div id="recurringByGroup" style="{% if not sub or sub.recurring_type in ('none','weekly','bi_weekly') %}display:none;{% endif %}">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Recurring Mode</label>
+                <div style="display:flex;gap:16px;padding-top:6px;">
+                    <label><input type="radio" name="recurring_by" value="date"
+                        {% if not sub or sub.recurring_by == 'date' %}checked{% endif %}
+                        onchange="toggleRecurringMode()"> Same date</label>
+                    <label><input type="radio" name="recurring_by" value="day"
+                        {% if sub and sub.recurring_by == 'day' %}checked{% endif %}
+                        onchange="toggleRecurringMode()"> Same weekday pattern</label>
+                </div>
+            </div>
+        </div>
+        <div id="recurringDayOptions" style="{% if not sub or sub.recurring_by != 'day' %}display:none;{% endif %}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Ordinal</label>
+                    <select name="recurring_ordinal">
+                        <option value="1" {% if sub and sub.recurring_ordinal == 1 %}selected{% endif %}>1st</option>
+                        <option value="2" {% if sub and sub.recurring_ordinal == 2 %}selected{% endif %}>2nd</option>
+                        <option value="3" {% if sub and sub.recurring_ordinal == 3 %}selected{% endif %}>3rd</option>
+                        <option value="4" {% if sub and sub.recurring_ordinal == 4 %}selected{% endif %}>4th</option>
+                        <option value="5" {% if sub and sub.recurring_ordinal == 5 %}selected{% endif %}>Last</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Weekday</label>
+                    <select name="recurring_weekday">
+                        <option value="0" {% if sub and sub.recurring_weekday == 0 %}selected{% endif %}>Monday</option>
+                        <option value="1" {% if sub and sub.recurring_weekday == 1 %}selected{% endif %}>Tuesday</option>
+                        <option value="2" {% if sub and sub.recurring_weekday == 2 %}selected{% endif %}>Wednesday</option>
+                        <option value="3" {% if sub and sub.recurring_weekday == 3 %}selected{% endif %}>Thursday</option>
+                        <option value="4" {% if sub and sub.recurring_weekday == 4 %}selected{% endif %}>Friday</option>
+                        <option value="5" {% if sub and sub.recurring_weekday == 5 %}selected{% endif %}>Saturday</option>
+                        <option value="6" {% if sub and sub.recurring_weekday == 6 %}selected{% endif %}>Sunday</option>
+                    </select>
+                </div>
+            </div>
         </div>
     </div>
     <div class="form-group">
@@ -87,4 +128,60 @@
         <a href="{% if sub %}{{ url_for('sub_program_detail', sub_id=sub.id) }}{% else %}{{ url_for('programs_landing') }}{% endif %}" class="btn btn-outline">Cancel</a>
     </div>
 </form>
+
+<script>
+function computeOrdinalWeekday(dateStr) {
+    if (!dateStr) return { ordinal: 1, weekday: 0 };
+    var d = new Date(dateStr + 'T12:00:00');
+    var jsWeekday = d.getDay();
+    var pyWeekday = (jsWeekday + 6) % 7;
+    var day = d.getDate();
+    var ordinal = Math.ceil(day / 7);
+    return { ordinal: ordinal, weekday: pyWeekday };
+}
+
+function fillDayModeFromDate(dateStr) {
+    var ow = computeOrdinalWeekday(dateStr);
+    document.querySelector('select[name="recurring_ordinal"]').value = ow.ordinal;
+    document.querySelector('select[name="recurring_weekday"]').value = ow.weekday;
+}
+
+function toggleRecurringOptions() {
+    var sel = document.getElementById('recurringSelect');
+    var val = sel.value;
+    var rg = document.getElementById('recurringByGroup');
+    rg.style.display = (val === 'monthly' || val === 'quarterly' || val === 'annual') ? 'block' : 'none';
+    if (rg.style.display !== 'none') {
+        toggleRecurringMode();
+    } else {
+        document.getElementById('recurringDayOptions').style.display = 'none';
+    }
+}
+
+function toggleRecurringMode() {
+    var by = document.querySelector('input[name="recurring_by"]:checked');
+    var dg = document.getElementById('recurringDayOptions');
+    var show = by && by.value === 'day';
+    dg.style.display = show ? 'block' : 'none';
+    if (show) {
+        var dateInput = document.querySelector('input[name="due_date"]');
+        if (dateInput && dateInput.value) {
+            fillDayModeFromDate(dateInput.value);
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var dateInput = document.querySelector('input[name="due_date"]');
+    if (dateInput) {
+        dateInput.addEventListener('change', function() {
+            var by = document.querySelector('input[name="recurring_by"]:checked');
+            if (by && by.value === 'day') {
+                fillDayModeFromDate(this.value);
+            }
+        });
+    }
+    toggleRecurringOptions();
+});
+</script>
 {% endblock %}

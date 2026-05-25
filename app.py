@@ -388,7 +388,7 @@ def programs_landing():
                 subs = [s for s in subs if s["derived_status"] == status_filter]
         c["sub_count"] = len(subs)
         c["active_count"] = sum(1 for s in subs if s["derived_status"] != "completed")
-    return render_template("programs.html", status=status_filter)
+    return render_template("programs.html", categories=categories, status=status_filter)
 
 
 @app.route("/programs/<int:cat_id>")
@@ -455,6 +455,9 @@ def sub_program_add():
             add_to_calendar=request.form.get("add_to_calendar", "0") == "1",
             type_flag=request.form.get("type_flag", "Program"),
             notes=request.form.get("notes", ""),
+            recurring_by=request.form.get("recurring_by", "date"),
+            recurring_weekday=request.form.get("recurring_weekday", type=int),
+            recurring_ordinal=request.form.get("recurring_ordinal", type=int),
         )
 
         member_ids = request.form.getlist("member_ids")
@@ -465,10 +468,11 @@ def sub_program_add():
         flash("Sub-program created", "success")
         return redirect(url_for("program_category", cat_id=request.form["program_category_id"]))
     members = get_members()
+    sub_program_type_flags = [f for f in TYPE_FLAGS if f != "Service"]
     return render_template(
         "sub_program_form.html", sub=None,
         members=members,
-        recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
+        recurring_types=RECURRING_TYPES, type_flags=sub_program_type_flags,
     )
 
 
@@ -509,6 +513,9 @@ def sub_program_edit(sub_id):
             add_to_calendar=request.form.get("add_to_calendar", "0") == "1",
             type_flag=request.form.get("type_flag", "Program"),
             notes=request.form.get("notes", ""),
+            recurring_by=request.form.get("recurring_by", "date"),
+            recurring_weekday=request.form.get("recurring_weekday", type=int),
+            recurring_ordinal=request.form.get("recurring_ordinal", type=int),
         )
         # Update members
         conn = None
@@ -535,10 +542,11 @@ def sub_program_edit(sub_id):
     team = get_sub_program_members(sub_id)
     team_ids = [m["id"] for m in team]
     members = get_members()
+    sub_program_type_flags = [f for f in TYPE_FLAGS if f != "Service"]
     return render_template(
         "sub_program_form.html", sub=sub, team_ids=team_ids,
         members=members,
-        recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
+        recurring_types=RECURRING_TYPES, type_flags=sub_program_type_flags,
     )
 
 
@@ -755,6 +763,9 @@ def event_add():
     if request.method == "POST":
         start_date = request.form["start_date"]
         sub_id = request.form.get("sub_program_id", type=int)
+        recurring_by = request.form.get("recurring_by", "date")
+        recurring_weekday = request.form.get("recurring_weekday", type=int)
+        recurring_ordinal = request.form.get("recurring_ordinal", type=int)
 
         if sub_id:
             sp = get_sub_program(sub_id)
@@ -762,10 +773,11 @@ def event_add():
                 flash("Event date cannot be after the linked sub-program's due date", "error")
                 subs = get_linkable_sub_programs()
                 members = get_members()
+                event_type_flags = [f for f in TYPE_FLAGS if f != "Program"]
                 return render_template(
                     "event_form.html", event=None,
                     subs=subs, members=members,
-                    recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
+                    recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
                 )
 
         event_id = add_event(
@@ -776,6 +788,9 @@ def event_add():
             start_date=start_date,
             notes=request.form.get("notes", ""),
             expiry_date=request.form.get("expiry_date") or None,
+            recurring_by=recurring_by,
+            recurring_weekday=recurring_weekday,
+            recurring_ordinal=recurring_ordinal,
         )
 
         # If linked to sub-program and assignee chosen, create task
@@ -794,7 +809,12 @@ def event_add():
         rt = request.form.get("recurring_type", "none")
         if rt != "none":
             expiry = request.form.get("expiry_date") or None
-            next_dates = get_next_recurrence_dates(start_date, rt, 3, expiry)
+            next_dates = get_next_recurrence_dates(
+                start_date, rt, 3, expiry,
+                recurring_by=recurring_by,
+                recurring_weekday=recurring_weekday,
+                recurring_ordinal=recurring_ordinal,
+            )
             if next_dates:
                 flash(f"Recurring ({rt}): next instances on " + ", ".join(next_dates), "success")
         return redirect(url_for("calendar_view"))
@@ -827,6 +847,10 @@ def event_edit(eid):
             recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
         )
 
+    recurring_by = request.form.get("recurring_by", event.get("recurring_by", "date"))
+    recurring_weekday = request.form.get("recurring_weekday", type=int)
+    recurring_ordinal = request.form.get("recurring_ordinal", type=int)
+
     update_event(
         event_id=eid,
         title=request.form["title"],
@@ -836,6 +860,9 @@ def event_edit(eid):
         start_date=request.form["start_date"],
         notes=request.form.get("notes", ""),
         expiry_date=request.form.get("expiry_date") or None,
+        recurring_by=recurring_by,
+        recurring_weekday=recurring_weekday,
+        recurring_ordinal=recurring_ordinal,
     )
     generate_recurring_instances(force=True)
     flash("Event updated", "success")
@@ -843,7 +870,12 @@ def event_edit(eid):
     rt = request.form.get("recurring_type", event["recurring_type"])
     if rt != "none":
         expiry = request.form.get("expiry_date") or None
-        next_dates = get_next_recurrence_dates(request.form["start_date"], rt, 3, expiry)
+        next_dates = get_next_recurrence_dates(
+            request.form["start_date"], rt, 3, expiry,
+            recurring_by=recurring_by,
+            recurring_weekday=recurring_weekday,
+            recurring_ordinal=recurring_ordinal,
+        )
         if next_dates:
             flash(f"Recurring ({rt}): next instances on " + ", ".join(next_dates), "success")
     return redirect(url_for("calendar_view"))
