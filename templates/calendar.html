@@ -111,6 +111,7 @@ function showEvent(id, source) {
             if (e.notes) html += '<p><strong>Notes:</strong> ' + e.notes + '</p>';
             html += '<div style="margin-top:16px;">';
             html += '<a href="/events/' + e.id + '/edit" class="btn btn-sm btn-primary" style="margin-right:6px;">Edit</a>';
+            html += '<button class="btn btn-sm btn-red" onclick="confirmDelete(\'/events/' + e.id + '/delete\', \'Delete ' + e.title.replace(/'/g, "\\'") + '?\');closeModal();" style="margin-right:6px;">Delete</button>';
             html += '<a href="/calendar" class="btn btn-sm btn-outline">Back</a>';
             html += '</div>';
             document.getElementById('modalBody').innerHTML = html;

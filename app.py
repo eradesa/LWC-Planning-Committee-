@@ -775,6 +775,7 @@ def event_add():
             type_flag=request.form.get("type_flag", "Event"),
             start_date=start_date,
             notes=request.form.get("notes", ""),
+            expiry_date=request.form.get("expiry_date") or None,
         )
 
         # If linked to sub-program and assignee chosen, create task
@@ -792,7 +793,8 @@ def event_add():
         flash("Event added", "success")
         rt = request.form.get("recurring_type", "none")
         if rt != "none":
-            next_dates = get_next_recurrence_dates(start_date, rt, 3)
+            expiry = request.form.get("expiry_date") or None
+            next_dates = get_next_recurrence_dates(start_date, rt, 3, expiry)
             if next_dates:
                 flash(f"Recurring ({rt}): next instances on " + ", ".join(next_dates), "success")
         return redirect(url_for("calendar_view"))
@@ -833,13 +835,15 @@ def event_edit(eid):
         type_flag=request.form.get("type_flag", "Event"),
         start_date=request.form["start_date"],
         notes=request.form.get("notes", ""),
+        expiry_date=request.form.get("expiry_date") or None,
     )
     generate_recurring_instances(force=True)
     flash("Event updated", "success")
 
     rt = request.form.get("recurring_type", event["recurring_type"])
     if rt != "none":
-        next_dates = get_next_recurrence_dates(request.form["start_date"], rt, 3)
+        expiry = request.form.get("expiry_date") or None
+        next_dates = get_next_recurrence_dates(request.form["start_date"], rt, 3, expiry)
         if next_dates:
             flash(f"Recurring ({rt}): next instances on " + ", ".join(next_dates), "success")
     return redirect(url_for("calendar_view"))

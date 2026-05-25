@@ -28,11 +28,15 @@
     <div class="form-row">
         <div class="form-group">
             <label>Recurring</label>
-            <select name="recurring_type">
+            <select name="recurring_type" id="recurringSelect" onchange="toggleExpiryDate()">
                 {% for r in recurring_types %}
                 <option value="{{ r }}" {% if event and event.recurring_type == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
             </select>
+        </div>
+        <div class="form-group" id="expiryGroup" style="{% if not event or event.recurring_type == 'none' %}display:none;{% endif %}">
+            <label>Recurring Expiry Date</label>
+            <input type="date" name="expiry_date" value="{{ event.expiry_date[:10] if event and event.expiry_date else '' }}">
         </div>
         <div class="form-group">
             <label>Link to Sub-Program (optional)</label>
@@ -58,6 +62,9 @@
     </div>
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">{% if event %}Update{% else %}Add{% endif %} Event</button>
+        {% if event %}
+        <button type="button" class="btn btn-red" data-confirm-delete="{{ url_for('event_delete', eid=event.id) }}" data-confirm-message="Delete '{{ event.title }}'?">Delete</button>
+        {% endif %}
         <a href="{{ url_for('calendar_view') }}" class="btn btn-outline">Cancel</a>
     </div>
 </form>
@@ -65,6 +72,12 @@
 <script>
 var subsData = {{ subs|tojson }};
 var membersData = {{ members|tojson }};
+
+function toggleExpiryDate() {
+    var sel = document.getElementById('recurringSelect');
+    var g = document.getElementById('expiryGroup');
+    g.style.display = sel.value === 'none' ? 'none' : 'block';
+}
 
 function updateAssignees() {
     var sel = document.getElementById('subSelect');
@@ -74,7 +87,6 @@ function updateAssignees() {
     g.style.display = 'block';
     var assigneeSel = g.querySelector('select');
     assigneeSel.innerHTML = '<option value="">— Unassigned —</option>';
-    // In a real app, fetch members for this sub-program. For now, show all.
     membersData.forEach(function(m) {
         var opt = document.createElement('option');
         opt.value = m.id;

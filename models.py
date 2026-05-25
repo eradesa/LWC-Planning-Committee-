@@ -126,6 +126,7 @@ def init_db():
             type_flag TEXT NOT NULL DEFAULT 'Event'
                 CHECK(type_flag IN ('Program','Meeting','Event','Service')),
             start_date TEXT NOT NULL,
+            expiry_date TEXT,
             notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
         )
@@ -163,6 +164,12 @@ def init_db():
     ]
     for idx in indexes:
         conn.execute(idx)
+    conn.execute("""
+        DO $$ BEGIN
+            ALTER TABLE events ADD COLUMN expiry_date TEXT;
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """)
     conn.commit()
     conn.close()
 
@@ -712,6 +719,9 @@ def get_events(year=None, month=None):
             if not delta:
                 continue
             seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+            raw = ev.get("expiry_date")
+            expiry = datetime.strptime(raw[:10], "%Y-%m-%d").date() if raw else None
+
             first_of_month = date(year, month, 1)
             if month == 12:
                 last_of_month = date(year, 12, 31)
@@ -721,6 +731,8 @@ def get_events(year=None, month=None):
             while True:
                 inst = seed + delta * gen
                 if inst > last_of_month:
+                    break
+                if expiry and inst > expiry:
                     break
                 if inst >= first_of_month and inst.isoformat() != ev["start_date"][:10]:
                     virtual = dict(ev)
@@ -744,13 +756,13 @@ def get_event(event_id):
     return dict(row) if row else None
 
 
-def add_event(title, sub_program_id, recurring_type, type_flag, start_date, notes):
+def add_event(title, sub_program_id, recurring_type, type_flag, start_date, notes, expiry_date=None):
     conn = get_conn()
-    cur = conn.execute("""
-        INSERT INTO events (title, sub_program_id, recurring_type, type_flag, start_date, notes)
-        VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
-    """, (title.strip(), sub_program_id or None, recurring_type,
-          type_flag, start_date, notes.strip()))
+    sql = ("INSERT INTO events (title, sub_program_id, recurring_type, "
+           "type_flag, start_date, expiry_date, notes) "
+           "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id")
+    cur = conn.execute(sql, (title.strip(), sub_program_id or None, recurring_type,
+                             type_flag, start_date, expiry_date or None, notes.strip()))
     event_id = cur.fetchone()["id"]
     conn.commit()
     conn.close()
@@ -758,13 +770,12 @@ def add_event(title, sub_program_id, recurring_type, type_flag, start_date, note
 
 
 def update_event(event_id, title, sub_program_id, recurring_type, type_flag,
-                 start_date, notes):
+                 start_date, notes, expiry_date=None):
     conn = get_conn()
-    conn.execute("""
-        UPDATE events SET title=%s, sub_program_id=%s, recurring_type=%s, type_flag=%s,
-               start_date=%s, notes=%s WHERE id=%s
-    """, (title.strip(), sub_program_id or None, recurring_type,
-          type_flag, start_date, notes.strip(), event_id))
+    sql = ("UPDATE events SET title=%s, sub_program_id=%s, recurring_type=%s, "
+           "type_flag=%s, start_date=%s, expiry_date=%s, notes=%s WHERE id=%s")
+    conn.execute(sql, (title.strip(), sub_program_id or None, recurring_type,
+                       type_flag, start_date, expiry_date or None, notes.strip(), event_id))
     conn.commit()
     conn.close()
 
@@ -878,7 +889,7 @@ def get_calendar_entries_from_date(year, month):
 def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
     """Expand recurring standalone events into a date range."""
     recurring = conn.execute("""
-        SELECT id, title, type_flag, start_date, recurring_type, notes
+        SELECT id, title, type_flag, start_date, expiry_date, recurring_type, notes
         FROM events
         WHERE recurring_type != 'none'
     """).fetchall()
@@ -889,11 +900,15 @@ def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
         if not delta:
             continue
         seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+        raw_exp = ev.get("expiry_date")
+        expiry = datetime.strptime(raw_exp[:10], "%Y-%m-%d").date() if raw_exp else None
 
         gen = 0
         while True:
             instance_date = seed + delta * gen
             if instance_date > end_date:
+                break
+            if expiry and instance_date > expiry:
                 break
             if instance_date >= start_date and instance_date.isoformat() != ev["start_date"][:10]:
                 entries.append({
@@ -909,7 +924,7 @@ def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
 def _expand_recurring_events(conn, year, month, entries):
     """Expand recurring standalone events into a given month, appending to entries list."""
     recurring = conn.execute("""
-        SELECT id, title, type_flag, start_date, recurring_type, notes
+        SELECT id, title, type_flag, start_date, expiry_date, recurring_type, notes
         FROM events
         WHERE recurring_type != 'none'
     """).fetchall()
@@ -920,6 +935,8 @@ def _expand_recurring_events(conn, year, month, entries):
         if not delta:
             continue
         seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+        raw_exp = ev.get("expiry_date")
+        expiry = datetime.strptime(raw_exp[:10], "%Y-%m-%d").date() if raw_exp else None
         first_of_month = date(year, month, 1)
         if month == 12:
             last_of_month = date(year, 12, 31)
@@ -930,6 +947,8 @@ def _expand_recurring_events(conn, year, month, entries):
         while True:
             instance_date = seed + delta * gen
             if instance_date > last_of_month:
+                break
+            if expiry and instance_date > expiry:
                 break
             if instance_date >= first_of_month:
                 entries.append({
@@ -953,18 +972,21 @@ RECURRENCE_DELTA = {
 }
 
 
-def get_next_recurrence_dates(start_date, recurring_type, count=3):
+def get_next_recurrence_dates(start_date, recurring_type, count=3, expiry_date=None):
     if recurring_type == "none":
         return []
     delta = RECURRENCE_DELTA.get(recurring_type)
     if not delta:
         return []
     seed = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
+    expiry = datetime.strptime(expiry_date[:10], "%Y-%m-%d").date() if expiry_date else None
     today = date.today()
     result = []
     gen = 1
     while len(result) < count:
         inst = seed + delta * gen
+        if expiry and inst > expiry:
+            break
         if inst > today:
             result.append(inst.isoformat())
         gen += 1
