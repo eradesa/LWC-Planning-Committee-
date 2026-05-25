@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChMS(prototype) — Living Way Church</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <div class="header-inner">
+            <a href="{{ url_for('dashboard') }}" class="logo-link">
+                <h1>ChMS(prototype) — Church Planning Committee</h1>
+            </a>
+            <nav>
+                <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                <div class="nav-dropdown">
+                    <a href="#" class="dropbtn">Programs ▾</a>
+                    <div class="dropdown-content">
+                        {% for c in categories %}
+                        <a href="{{ url_for('program_category', cat_id=c.id) }}">{{ c.name }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+                <a href="{{ url_for('calendar_view') }}">Calendar</a>
+                <a href="{{ url_for('category_add') }}" class="nav-add">+ Add Program</a>
+                <a href="{{ url_for('member_list') }}">Directory</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer>
+        <p>ChMS(prototype) — Living Way Church Planning Committee</p>
+    </footer>
+</body>
+</html>

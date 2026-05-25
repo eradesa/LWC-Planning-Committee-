@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>Directory</h2>
+    <a href="{{ url_for('member_add') }}" class="btn btn-primary">Add Member</a>
+</div>
+
+{% if members %}
+<div class="table-wrap">
+    <table>
+        <thead><tr>
+            <th>Name</th><th>Designation</th><th>Phone</th><th>Email</th><th class="actions">Actions</th>
+        </tr></thead>
+        <tbody>
+            {% for m in members %}
+            <tr>
+                <td><strong>{{ m.name }}</strong></td>
+                <td>{{ m.designation or '—' }}</td>
+                <td>{{ m.phone or '—' }}</td>
+                <td>{{ m.email or '—' }}</td>
+                <td class="actions">
+                    <a href="{{ url_for('member_edit', mid=m.id) }}" class="btn btn-sm btn-outline">Edit</a>
+                    <form method="POST" action="{{ url_for('member_delete', mid=m.id) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-red" onclick="return confirm('Delete {{ m.name }}?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p style="color:#999;">No members yet. <a href="{{ url_for('member_add') }}">Add one</a>.</p>
+{% endif %}
+{% endblock %}

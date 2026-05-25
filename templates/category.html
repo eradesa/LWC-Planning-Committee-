@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>{{ category.name }}</h2>
+    <div>
+        <a href="{{ url_for('sub_program_add' ) }}" class="btn btn-primary">+ Add Sub-Program</a>
+        <a href="{{ url_for('programs_landing') }}" class="btn btn-outline">All Programs</a>
+    </div>
+</div>
+
+<div style="margin-bottom:16px;">
+    <input type="text" id="searchCards" class="search-input" placeholder="Search in {{ category.name }}..." oninput="filterCards()">
+</div>
+
+{% if subs %}
+<div class="card-list" id="cardList">
+    {% for sp in subs %}
+    <div class="sub-card" data-search="{{ sp.title.lower() }} {{ (sp.in_charge_name or '').lower() }} {{ sp.derived_status }}">
+        <a href="{{ url_for('sub_program_detail', sub_id=sp.id) }}" class="sub-card-link">
+            <div class="sub-card-header">
+                <h4>{{ sp.title }}</h4>
+                <span class="badge {{ status_color(sp.derived_status) }}">{{ sp.derived_status }}</span>
+            </div>
+            <div class="sub-card-body">
+                <div class="sub-card-info">
+                    <span><strong>Due:</strong> {{ sp.due_date or '—' }}</span>
+                    <span><strong>In-Charge:</strong> {{ sp.in_charge_name or '—' }}</span>
+                </div>
+                <div class="sub-card-info">
+                    <span>
+                        <strong>Priority:</strong>
+                        {% if sp.derived_priority %}
+                        <span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>
+                        {% else %}—{% endif %}
+                    </span>
+                    <span><strong>Tasks:</strong> {{ sp.task_count }}</span>
+                </div>
+                <div class="sub-card-info">
+                    <span><strong>Flag:</strong> <span class="badge badge-med">{{ sp.type_flag }}</span></span>
+                    <span><strong>Recurring:</strong> {{ sp.recurring_type }}</span>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p style="color:#999;">No sub-programs in this category yet.</p>
+{% endif %}
+
+<script>
+function filterCards() {
+    var q = document.getElementById('searchCards').value.toLowerCase();
+    document.querySelectorAll('.sub-card').forEach(function(c) {
+        c.style.display = c.dataset.search.includes(q) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

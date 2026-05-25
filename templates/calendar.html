@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="cal-header">
+    <div class="cal-nav">
+        <a href="{{ url_for('calendar_view', month=prev_month, year=prev_year) }}" class="btn btn-sm btn-outline">&larr; Prev</a>
+        <h2>{{ months[month-1] }} {{ year }}</h2>
+        <a href="{{ url_for('calendar_view', month=next_month, year=next_year) }}" class="btn btn-sm btn-outline">Next &rarr;</a>
+    </div>
+    <a href="{{ url_for('event_add') }}" class="btn btn-primary">+ Add Event</a>
+</div>
+
+<div class="layout-sidebar">
+    <div>
+        <table class="cal-grid">
+            <thead><tr>
+                {% for d in day_names %}<th>{{ d }}</th>{% endfor %}
+            </tr></thead>
+            <tbody>
+                {% for week in cal %}
+                <tr>
+                    {% for day in week %}
+                    {% set date_key = '%04d-%02d-%02d'|format(year, month, day) if day > 0 else '' %}
+                    <td class="{% if day == 0 %}other-month{% elif date_key == today %}today{% endif %}">
+                        {% if day > 0 %}
+                        <div class="cal-day-num">{{ day }}</div>
+                        {% for e in entries_by_date.get(date_key, []) %}
+                        <div class="cal-event {{ e.type_flag|lower }}" onclick="showEvent({{ e.id }}, '{{ e.source }}')" title="{{ e.title }}">
+                            {{ e.title[:20] }}
+                        </div>
+                        {% endfor %}
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div>
+        <div class="sidebar-card">
+            <h3>This Month</h3>
+            {% if month_entries %}
+            {% for e in month_entries %}
+            <div class="schedule-item">
+                <div class="schedule-title">
+                    {% if e.source == 'sub_program' %}
+                    <a href="{{ url_for('sub_program_detail', sub_id=e.id) }}">{{ e.title }}</a>
+                    {% else %}
+                    <a href="#" onclick="showEvent({{ e.id }}, '{{ e.source }}');return false;">{{ e.title }}</a>
+                    {% endif %}
+                </div>
+                <div class="schedule-meta">
+                    <span class="schedule-date">{{ e.start_date[:10] }}</span>
+                    <span class="badge badge-med">{{ e.type_flag }}</span>
+                    <span style="font-size:10px;color:#999;">{{ e.source }}</span>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p style="color:#999;">No entries this month.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div id="eventModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script>
+function showEvent(id, source) {
+    if (source === 'sub_program') {
+        window.location = '/programs/sub/' + id;
+        return;
+    }
+    fetch('/calendar/event/' + id)
+        .then(function(r) { return r.json(); })
+        .then(function(e) {
+            var html = '<h3>' + e.title + '</h3>';
+            html += '<p><strong>Type:</strong> ' + e.type_flag + '</p>';
+            html += '<p><strong>Date:</strong> ' + e.date + '</p>';
+            if (e.sub_program_title) html += '<p><strong>Linked to:</strong> ' + e.sub_program_title + '</p>';
+            if (e.notes) html += '<p><strong>Notes:</strong> ' + e.notes + '</p>';
+            html += '<div style="margin-top:16px;">';
+            html += '<a href="/calendar" class="btn btn-sm btn-outline">Back</a>';
+            html += '</div>';
+            document.getElementById('modalBody').innerHTML = html;
+            document.getElementById('eventModal').style.display = 'block';
+        });
+}
+function closeModal() {
+    document.getElementById('eventModal').style.display = 'none';
+}
+window.onclick = function(e) {
+    if (e.target == document.getElementById('eventModal')) closeModal();
+}
+</script>
+{% endblock %}

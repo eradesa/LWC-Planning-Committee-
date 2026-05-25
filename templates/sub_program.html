@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>{{ sub.title }}</h2>
+    <div>
+        <a href="{{ url_for('sub_program_edit', sub_id=sub.id) }}" class="btn btn-outline">Edit</a>
+        <a href="{{ url_for('program_category', cat_id=sub.program_category_id) }}" class="btn btn-outline">Back to {{ sub.category_name }}</a>
+    </div>
+</div>
+
+<div class="sub-program-meta">
+    <div class="meta-item"><strong>Category:</strong> {{ sub.category_name }}</div>
+    <div class="meta-item"><strong>Status:</strong> <span class="badge {{ status_color(derived.status) }}">{{ derived.status }}</span></div>
+    <div class="meta-item"><strong>Priority:</strong> {% if derived.priority %}<span class="badge {{ priority_color(derived.priority) }}">{{ derived.priority }}</span>{% else %}—{% endif %}</div>
+    <div class="meta-item"><strong>Due:</strong> {{ sub.due_date or '—' }}</div>
+    <div class="meta-item"><strong>In-Charge:</strong> {{ sub.in_charge_name or '—' }}</div>
+    <div class="meta-item"><strong>Flag:</strong> <span class="badge badge-med">{{ sub.type_flag }}</span></div>
+    <div class="meta-item"><strong>Recurring:</strong> {{ sub.recurring_type }}</div>
+    <div class="meta-item"><strong>Calendar:</strong> {{ 'Yes' if sub.add_to_calendar else 'No' }}</div>
+</div>
+
+{% if team %}
+<div class="meta-item" style="margin-bottom:16px;">
+    <strong>Team:</strong>
+    {% for m in team %}
+    <span class="badge badge-med" style="margin-right:4px;">{{ m.name }}</span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="layout-sidebar">
+    <div>
+        <div class="page-header" style="margin-bottom:12px;">
+            <h3 style="font-size:16px;color:#1a3a5c;">Tasks ({{ tasks|length }})</h3>
+        </div>
+
+        {% if tasks %}
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th style="width:30px;">#</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Priority</th>
+                    <th>Assigned To</th>
+                    <th>Due</th>
+                    <th>Follow-ups</th>
+                    <th class="actions">Actions</th>
+                </tr></thead>
+                <tbody>
+                    {% for t in tasks %}
+                    <tr class="task-row" data-task-id="{{ t.id }}">
+                        <td style="color:#999;">{{ t.id }}</td>
+                        <td><strong>{{ t.title }}</strong></td>
+                        <td>
+                            <form method="POST" action="{{ url_for('task_update', tid=t.id) }}" style="display:inline;">
+                                <input type="hidden" name="action" value="status">
+                                <select name="status" onchange="this.form.submit()" class="status-select">
+                                    {% for s in statuses %}
+                                    <option value="{{ s }}" {% if t.status == s %}selected{% endif %}>{{ s }}</option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                        </td>
+                        <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
+                        <td>{{ t.assigned_name or '—' }}</td>
+                        <td>{{ t.due_date or '—' }}</td>
+                        <td>
+                            <a href="#" onclick="toggleTaskUpdates({{ t.id }});return false;" class="updates-toggle">
+                                {% set ucount = get_task_updates(t.id)|length %}
+                                {{ ucount }} note{{ 's' if ucount != 1 else '' }}
+                            </a>
+                        </td>
+                        <td class="actions">
+                            <form method="POST" action="{{ url_for('task_delete', tid=t.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-red" onclick="return confirm('Delete task?')">Del</button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr class="task-updates-row" id="updates-{{ t.id }}" style="display:none;">
+                        <td colspan="8" style="padding:12px 16px;background:#f8f9fa;">
+                            <div style="max-height:200px;overflow-y:auto;margin-bottom:8px;">
+                                {% set updates = get_task_updates(t.id) %}
+                                {% for u in updates %}
+                                <div class="update-item">
+                                    <div>{{ u.note }}</div>
+                                    <div class="update-date">{{ u.created_at[:16] }}</div>
+                                </div>
+                                {% else %}
+                                <p style="color:#999;font-size:13px;">No follow-up notes yet.</p>
+                                {% endfor %}
+                            </div>
+                            <form method="POST" action="{{ url_for('task_update', tid=t.id) }}" style="display:flex;gap:8px;">
+                                <input type="hidden" name="action" value="add_update">
+                                <input type="text" name="note" placeholder="Add a follow-up note..." style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                                <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color:#999;">No tasks yet.</p>
+        {% endif %}
+
+        <div class="form-card" style="max-width:100%;margin-top:20px;">
+            <h3 style="font-size:14px;color:#1a3a5c;margin-bottom:12px;">Add Task</h3>
+            <form method="POST" action="{{ url_for('task_add', sub_id=sub.id) }}">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input type="text" name="title" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Due Date</label>
+                        <input type="date" name="due_date" max="{{ sub.due_date }}">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Assigned To</label>
+                        <select name="assigned_to">
+                            <option value="">— None —</option>
+                            {% for m in team %}
+                            <option value="{{ m.id }}">{{ m.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <select name="priority">
+                            {% for p in priorities %}
+                            <option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Add Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div>
+        <div class="sidebar-card">
+            <h3>Notes</h3>
+            <form method="POST" action="{{ url_for('sub_program_add_note', sub_id=sub.id) }}">
+                <textarea name="notes" rows="6" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:inherit;font-size:13px;">{{ sub.notes }}</textarea>
+                <button type="submit" class="btn btn-sm btn-primary" style="margin-top:8px;">Save Notes</button>
+            </form>
+        </div>
+
+        <div class="sidebar-card" style="margin-top:16px;">
+            <h3>Danger Zone</h3>
+            <form method="POST" action="{{ url_for('sub_program_delete', sub_id=sub.id) }}">
+                <button type="submit" class="btn btn-red" onclick="return confirm('Delete this sub-program? This cannot be undone.')">Delete Sub-Program</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleTaskUpdates(taskId) {
+    var row = document.getElementById('updates-' + taskId);
+    if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

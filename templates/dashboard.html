@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>Dashboard</h2>
+    <a href="{{ url_for('sub_program_add') }}" class="btn btn-primary">+ Add New Sub-Program</a>
+</div>
+
+<div class="card-grid">
+    <div class="card"><div class="card-number">{{ counts.total }}</div><div class="card-label">Total Sub-Programs</div></div>
+    <div class="card card-open"><div class="card-number">{{ counts.open }}</div><div class="card-label">Open</div></div>
+    <div class="card card-progress"><div class="card-number">{{ counts.in_progress }}</div><div class="card-label">In-Progress</div></div>
+    <div class="card card-hold"><div class="card-number">{{ counts.on_hold_suspended }}</div><div class="card-label">On-Hold / Suspended</div></div>
+    <div class="card card-done"><div class="card-number">{{ counts.completed }}</div><div class="card-label">Completed</div></div>
+    <div class="card card-overdue"><div class="card-number">{{ counts.overdue }}</div><div class="card-label">Overdue</div></div>
+</div>
+
+<div class="layout-sidebar">
+    <div>
+        {% if overdue_subs %}
+        <h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">⚠ Overdue Sub-Programs</h3>
+        <div class="table-wrap" style="margin-bottom:24px;">
+            <table>
+                <thead><tr>
+                    <th>Title</th><th>Category</th><th>Due</th><th>In-Charge</th><th>Priority</th><th>Tasks</th>
+                </tr></thead>
+                <tbody>
+                    {% for sp in overdue_subs %}
+                    <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
+                        <td><strong>{{ sp.title }}</strong></td>
+                        <td>{{ sp.category_name }}</td>
+                        <td style="color:#be1e28;">{{ sp.due_date }}</td>
+                        <td>{{ sp.in_charge_name or '—' }}</td>
+                        <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
+                        <td>{{ sp.task_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <h3 style="font-size:16px;color:#1a3a5c;margin-bottom:12px;">All Active Sub-Programs</h3>
+        {% if active_subs %}
+        <div style="margin-bottom:12px;">
+            <input type="text" id="activeSearch" class="search-input" placeholder="Search active sub-programs..." oninput="filterActiveTable()">
+        </div>
+        <div class="table-wrap">
+            <table id="activeTable">
+                <thead><tr>
+                    <th onclick="sortActive(0)">Title ↕</th>
+                    <th onclick="sortActive(1)">Category ↕</th>
+                    <th onclick="sortActive(2)">Due ↕</th>
+                    <th onclick="sortActive(3)">In-Charge ↕</th>
+                    <th onclick="sortActive(4)">Status ↕</th>
+                    <th onclick="sortActive(5)">Priority ↕</th>
+                    <th onclick="sortActive(6)">Tasks ↕</th>
+                </tr></thead>
+                <tbody>
+                    {% for sp in active_subs %}
+                    <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
+                        <td><strong>{{ sp.title }}</strong></td>
+                        <td>{{ sp.category_name }}</td>
+                        <td>{{ sp.due_date or '—' }}</td>
+                        <td>{{ sp.in_charge_name or '—' }}</td>
+                        <td><span class="badge {{ status_color(sp.derived_status) }}">{{ sp.derived_status }}</span></td>
+                        <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
+                        <td>{{ sp.task_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color:#999;">No active sub-programs.</p>
+        {% endif %}
+    </div>
+
+    <div>
+        <div class="sidebar-card">
+            <h3>Upcoming Schedule</h3>
+            {% if schedule %}
+            {% for item in schedule %}
+            <div class="schedule-item">
+                <div class="schedule-title">
+                    {% if item.source == 'sub_program' %}
+                    <a href="{{ url_for('sub_program_detail', sub_id=item.id) }}">{{ item.title }}</a>
+                    {% else %}
+                    {{ item.title }}
+                    {% endif %}
+                </div>
+                <div class="schedule-meta">
+                    <span class="schedule-date">{{ item.event_date[:10] }}</span>
+                    <span class="badge badge-med">{{ item.type_flag }}</span>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p style="color:#999;">No upcoming items.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function filterActiveTable() {
+    var q = document.getElementById('activeSearch').value.toLowerCase();
+    var rows = document.querySelectorAll('#activeTable tbody tr');
+    rows.forEach(function(r) {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function sortActive(col) {
+    var table = document.getElementById('activeTable');
+    var tbody = table.querySelector('tbody');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+    table.dataset.sortDir = dir;
+    rows.sort(function(a, b) {
+        var va = a.cells[col].textContent.trim();
+        var vb = b.cells[col].textContent.trim();
+        if (!isNaN(parseFloat(va))) return (parseFloat(va) - parseFloat(vb)) * (dir === 'asc' ? 1 : -1);
+        return va.localeCompare(vb) * (dir === 'asc' ? 1 : -1);
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+}
+</script>
+{% endblock %}

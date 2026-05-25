@@ -1,0 +1,84 @@
+opencode -s ses_1a9c7e5edffeTGWUKH0yqATOD1
+
+need some modifications:[REVIW THIS WITH A DEEP ANALYSIS OF THE EXISTING FEATURES AND GIVE FEEDBACK- ENSURE TO USE PYTHON AND js PEST PRACTIES AND MEMORY AND PERFORMANCE OPTIMIZATION METHODS]
+
+1. Two main Categories
+- Programs
+	-Sub Programs -> Tasks (multiple)
+- Calander (Sub Programs have a option to add to calander option)
+
+2. Create Progrems Categories [Programs and Meetings | Admin & Maintenence | Ministries]
+	- Create Sub Programs Categories -> Create Multiple Tasks 
+	
+3. Sub Programs - Should have One time due Date or Reoccuring as - Weekly | Bi Weekly | Monthly | Quarterly | Annualy
+-If Reoccuring, these should be recreated with the included set of tasks by the system as a new sub programm and not update the old sub program (all hostory should be linked to have a full view if required)
+-Have check mark to confirm Add to Calander - if marked, the calnder should be updated including the reoccuring sub programes
+-Have option to add multiple team members (to be selected in task assignement)
+-Status (with colour codes)- if All tasks are in either Completed | On-hold | Suspended - the status display precedance is 1-Completed 2-On-hold 3-Suspended (if atleast 1 is in Complete status should be 'Complete' or likewise)
+	- if Open | In-progress - if atleast 1 is in In-Progress staus 'In-Progress' else 'Open'
+-Priority (with colour codes)-The higest Piority in Open and In-progress should be shown. 
+-Ability to add notes (multiline text box)
+-Delete Sub program - should not be able to delete if any task is in Open or In-progress
+
+
+4. Tasks - Should have One time due Date not exceeding the sub program date or a Check Mark to check-off (both options are needed)
+-Assigned To - Dropdown - team member from relavent sub program
+-Status (with colour codes)- Open | In-progress | Completed | On-hold | Suspended
+-Priority (with colour codes)- Low | Medium | High | Critical
+-Ability to add Multiple  followup comments
+-Delete Task
+
+5.Calander - 
+-All sub programs with check mark on (add to calander) should be displayed
+-Should be able to directly add events [One time events and Reoccuring events as - Weekly | Bi Weekly | Monthly | Quarterly | Annualy] 
+-CFor directly added events -  have a dropdown with all sub programs listed and if selected (optional) this event should be added as a TASK (without a assinee)to that perticular sub program which is ON THE SAME DAY as the Event.
+
+
+1.Top Nav should have Dashboard | Programs (sub menu list the sub programs) | Calander | Directory
+2.Daily when the system is activated and generate for the the next 7 days
+3.from directory - Directory should have a option to add Name | Designation 
+4. What is good ??
+5.yes task due date should be the event date | new requirement:When a direct event is linked to a sub-program a dropdown should be available to assin a members of that sub program
+
+
+Question: The sub-menu under Programs — should it list the 3 categories (as shown above) - yes and when clicked a page should display the sub-programs as cards with relavant important data and when clicked it should give a model form or expand to show all tasks and relavant data enabling to review, add comments and Notes  
+Refined Design Decisions
+
+Point 4 — ok
+
+Directory Simplified - review details required
+Members form: Name + Designation + phone + email
+
+new requirement: sub-programs should have a in-charge (selected from the dropdown)
+new requirement: in Dashboard and sup-program page  a button should be there as 'Add New Sub-Program'
+new requirement: After Calander  main menu have a menu as Add Programs to add new program categories
+
+Dashboard :
+View Overdue Sup-Programs (same fields) when clicked go to the view discribed in the above "Qestion" section
+The 5 cards should be based on sub-program data 
+then Recent Sup-Programs
+on Right:Upcomming Schedule
+Next Sunday - not needed 
+
+
+
+
+-------
+
+Clicking a category shows its sub-programs as cards - on a page 
+
+Dashboard Redesign
+5 cards (based on sub-program derived statuses):
+New: add one more card as On-Hold / Suspended
+
+Card	Data Source
+Total Sub-Programs	COUNT all
+Open	COUNT where derived status = Open
+In-Progress	COUNT where derived status = In-Progress
+Completed	COUNT where derived status = Completed
+Overdue	COUNT where due_date < today AND status ≠ Completed or On-Hold or Suspended
+
+Left column:
+- Overdue Sub-Programs (table, clickable → sub-program detail view)
+- Recent Sub-Programs - All Sub-Programs ≠ Completed or On-Hold or Suspended sorted from due date nearest to furtherest
+

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>{% if sub %}Edit: {{ sub.title }}{% else %}New Sub-Program{% endif %}</h2>
+    <a href="{% if sub %}{{ url_for('sub_program_detail', sub_id=sub.id) }}{% else %}{{ url_for('programs_landing') }}{% endif %}" class="btn btn-outline">Back</a>
+</div>
+
+<form method="POST" class="form-card" style="max-width:100%;">
+    <div class="form-row">
+        <div class="form-group">
+            <label>Program Category</label>
+            <select name="program_category_id" required>
+                {% for c in categories %}
+                <option value="{{ c.id }}" {% if sub and sub.program_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Title</label>
+            <input type="text" name="title" value="{{ sub.title if sub else '' }}" required>
+        </div>
+    </div>
+    <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" rows="3">{{ sub.description if sub else '' }}</textarea>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>Due Date</label>
+            <input type="date" name="due_date" value="{{ sub.due_date[:10] if sub and sub.due_date else '' }}">
+        </div>
+        <div class="form-group">
+            <label>In-Charge</label>
+            <select name="in_charge_id">
+                <option value="">— None —</option>
+                {% for m in members %}
+                <option value="{{ m.id }}" {% if sub and sub.in_charge_id == m.id %}selected{% endif %}>{{ m.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>Recurring</label>
+            <select name="recurring_type">
+                {% for r in recurring_types %}
+                <option value="{{ r }}" {% if sub and sub.recurring_type == r %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Type Flag</label>
+            <select name="type_flag">
+                {% for f in type_flags %}
+                <option value="{{ f }}" {% if sub and sub.type_flag == f %}selected{% endif %}>{{ f }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="form-group">
+        <label>
+            <input type="checkbox" name="add_to_calendar" value="1" {% if sub and sub.add_to_calendar %}checked{% endif %}>
+            Add to Calendar
+        </label>
+    </div>
+    <div class="form-group">
+        <label>Notes</label>
+        <textarea name="notes" rows="4">{{ sub.notes if sub else '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label>Team Members</label>
+        <div class="member-checklist">
+            {% for m in members %}
+            <label class="check-label">
+                <input type="checkbox" name="member_ids" value="{{ m.id }}"
+                    {% if sub and m.id in team_ids %}checked{% endif %}>
+                {{ m.name }}
+                {% if m.designation %}<span style="color:#888;font-size:11px;">({{ m.designation }})</span>{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">{% if sub %}Update{% else %}Create{% endif %} Sub-Program</button>
+        <a href="{% if sub %}{{ url_for('sub_program_detail', sub_id=sub.id) }}{% else %}{{ url_for('programs_landing') }}{% endif %}" class="btn btn-outline">Cancel</a>
+    </div>
+</form>
+{% endblock %}
