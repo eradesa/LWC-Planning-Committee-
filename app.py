@@ -930,7 +930,12 @@ def category_edit(cat_id):
         flash("Category not found", "error")
         return redirect(url_for("programs_landing"))
     if request.method == "GET":
-        return render_template("category_form.html", category=cat)
+        conn = get_conn()
+        sub_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM sub_programs WHERE program_category_id=%s", (cat_id,)
+        ).fetchone()["c"]
+        conn.close()
+        return render_template("category_form.html", category=cat, sub_count=sub_count)
     update_program_category(
         category_id=cat_id,
         name=request.form["name"],
@@ -944,6 +949,14 @@ def category_edit(cat_id):
 @app.route("/programs/category/<int:cat_id>/delete", methods=["POST"])
 @require_write
 def category_delete(cat_id):
+    conn = get_conn()
+    sub_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM sub_programs WHERE program_category_id=%s", (cat_id,)
+    ).fetchone()["c"]
+    conn.close()
+    if sub_count > 0:
+        flash("Cannot delete category with existing sub-programs", "error")
+        return redirect(url_for("category_edit", cat_id=cat_id))
     delete_program_category(cat_id)
     flash("Category deleted", "success")
     return redirect(url_for("programs_landing"))

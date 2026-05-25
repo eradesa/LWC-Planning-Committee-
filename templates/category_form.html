@@ -21,7 +21,25 @@
     </div>
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">{% if category %}Update{% else %}Create{% endif %}</button>
+        {% if category %}
+        <button type="button" class="btn btn-red" {% if sub_count and sub_count > 0 %}disabled style="opacity:0.5;cursor:not-allowed;"{% endif %} onclick="deleteCategory({{ category.id }})">Delete</button>
+        {% endif %}
         <a href="{{ url_for('programs_landing') }}" class="btn btn-outline">Cancel</a>
     </div>
 </form>
+
+{% if category %}
+<script>
+function deleteCategory(id) {
+    if ({{ sub_count|default(0) }} > 0) return;
+    if (confirm('Delete this category?')) {
+        var f = document.createElement('form');
+        f.method = 'POST';
+        f.action = '/programs/category/' + id + '/delete';
+        document.body.appendChild(f);
+        f.submit();
+    }
+}
+</script>
+{% endif %}
 {% endblock %}
