@@ -37,8 +37,9 @@
         </table>
     </div>
     <div>
-        <div class="sidebar-card">
+        <div class="sidebar-card scrollable-card">
             <h3>This Month</h3>
+            <div class="scrollable-content">
             {% if month_entries %}
             {% for e in month_entries %}
             <div class="schedule-item">
@@ -59,7 +60,31 @@
             {% else %}
             <p style="color:#999;">No entries this month.</p>
             {% endif %}
+            </div>
         </div>
+        {% if later_entries %}
+        <div class="sidebar-card scrollable-card" style="margin-top:16px;">
+            <h3>Later</h3>
+            <div class="scrollable-content">
+            {% for e in later_entries %}
+            <div class="schedule-item">
+                <div class="schedule-title">
+                    {% if e.source == 'sub_program' %}
+                    <a href="{{ url_for('sub_program_detail', sub_id=e.id) }}">{{ e.title }}</a>
+                    {% else %}
+                    <a href="#" onclick="showEvent({{ e.id }}, '{{ e.source }}');return false;">{{ e.title }}</a>
+                    {% endif %}
+                </div>
+                <div class="schedule-meta">
+                    <span class="schedule-date">{{ e.start_date[:10] }}</span>
+                    <span class="badge badge-med">{{ e.type_flag }}</span>
+                    <span style="font-size:10px;color:#999;">{{ e.source }}</span>
+                </div>
+            </div>
+            {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -85,6 +110,7 @@ function showEvent(id, source) {
             if (e.sub_program_title) html += '<p><strong>Linked to:</strong> ' + e.sub_program_title + '</p>';
             if (e.notes) html += '<p><strong>Notes:</strong> ' + e.notes + '</p>';
             html += '<div style="margin-top:16px;">';
+            html += '<a href="/events/' + e.id + '/edit" class="btn btn-sm btn-primary" style="margin-right:6px;">Edit</a>';
             html += '<a href="/calendar" class="btn btn-sm btn-outline">Back</a>';
             html += '</div>';
             document.getElementById('modalBody').innerHTML = html;

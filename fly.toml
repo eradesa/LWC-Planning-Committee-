@@ -6,10 +6,7 @@
 app = 'chms-prototype'
 primary_region = 'ams'
 
-[build]
-
 [env]
-  CHMS_DB_PATH = '/data/chms.db'
   PYTHONUNBUFFERED = '1'
 
 [http_service]
@@ -42,7 +39,3 @@ primary_region = 'ams'
   memory = '256mb'
   cpus = 1
   memory_mb = 256
-
-[[mounts]]
-  source = "chms_data"
-  destination = "/data"

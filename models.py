@@ -1,22 +1,9 @@
-import sqlite3
 import os
-import sys
+import psycopg2
+import psycopg2.extras
 from datetime import date, datetime, timedelta
-from calendar import monthcalendar
 
-
-def get_data_dir():
-    base = os.environ.get("CHMS_DATA_DIR")
-    if not base:
-        if sys.platform == "win32":
-            base = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ChMS")
-        else:
-            base = os.path.join(os.path.expanduser("~"), ".chms")
-    os.makedirs(base, exist_ok=True)
-    return base
-
-
-DB_PATH = os.environ.get("CHMS_DB_PATH") or os.path.join(get_data_dir(), "chms.db")
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 TASK_STATUSES = ["open", "in_progress", "completed", "on_hold", "suspended"]
 TASK_PRIORITIES = ["low", "medium", "high", "critical"]
@@ -33,40 +20,54 @@ STATUS_CASCADE_ORDER = [
 ]
 
 
+class _Connection:
+    """Wraps a psycopg2 connection with an execute() method compatible
+    with the old sqlite3.Connection.execute() API."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, params or ())
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
 def get_conn():
-    # Ensure parent directory exists (important for mounted volumes on Fly.io)
-    db_dir = os.path.dirname(DB_PATH)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return _Connection(psycopg2.connect(DATABASE_URL))
 
 
 def init_db():
     conn = get_conn()
-    conn.executescript("""
+    tables = [
+        """
         CREATE TABLE IF NOT EXISTS members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             designation TEXT NOT NULL DEFAULT '',
             phone TEXT NOT NULL DEFAULT '',
             email TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS program_categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
             description TEXT NOT NULL DEFAULT '',
             sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS sub_programs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             program_category_id INTEGER NOT NULL REFERENCES program_categories(id),
             title TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
@@ -80,19 +81,21 @@ def init_db():
             notes TEXT NOT NULL DEFAULT '',
             parent_id INTEGER REFERENCES sub_programs(id),
             generation INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS'),
+            updated_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS sub_program_members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             sub_program_id INTEGER NOT NULL REFERENCES sub_programs(id) ON DELETE CASCADE,
             member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
             UNIQUE(sub_program_id, member_id)
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             sub_program_id INTEGER NOT NULL REFERENCES sub_programs(id) ON DELETE CASCADE,
             title TEXT NOT NULL,
             due_date TEXT,
@@ -101,19 +104,21 @@ def init_db():
                 CHECK(status IN ('open','in_progress','completed','on_hold','suspended')),
             priority TEXT NOT NULL DEFAULT 'medium'
                 CHECK(priority IN ('low','medium','high','critical')),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS'),
             completed_at TEXT
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS task_updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             note TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
             sub_program_id INTEGER REFERENCES sub_programs(id),
             recurring_type TEXT NOT NULL DEFAULT 'none'
@@ -122,16 +127,18 @@ def init_db():
                 CHECK(type_flag IN ('Program','Meeting','Event','Service')),
             start_date TEXT NOT NULL,
             notes TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS app_config (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
@@ -139,17 +146,23 @@ def init_db():
                 CHECK(role IN ('admin','power_user','viewer')),
             display_name TEXT NOT NULL DEFAULT '',
             is_approved INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_tasks_sub_program ON tasks(sub_program_id);
-        CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-        CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
-        CREATE INDEX IF NOT EXISTS idx_sub_programs_category ON sub_programs(program_category_id);
-        CREATE INDEX IF NOT EXISTS idx_sub_programs_due ON sub_programs(due_date);
-        CREATE INDEX IF NOT EXISTS idx_sub_programs_parent ON sub_programs(parent_id);
-        CREATE INDEX IF NOT EXISTS idx_events_date ON events(start_date);
-    """)
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        )
+        """,
+    ]
+    for ddl in tables:
+        conn.execute(ddl)
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_tasks_sub_program ON tasks(sub_program_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to)",
+        "CREATE INDEX IF NOT EXISTS idx_sub_programs_category ON sub_programs(program_category_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sub_programs_due ON sub_programs(due_date)",
+        "CREATE INDEX IF NOT EXISTS idx_sub_programs_parent ON sub_programs(parent_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_date ON events(start_date)",
+    ]
+    for idx in indexes:
+        conn.execute(idx)
     conn.commit()
     conn.close()
 
@@ -165,19 +178,19 @@ def get_members():
 
 def get_member(member_id):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+    row = conn.execute("SELECT * FROM members WHERE id=%s", (member_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
 def add_member(name, designation, phone, email):
     conn = get_conn()
-    conn.execute(
-        "INSERT INTO members (name, designation, phone, email) VALUES (?,?,?,?)",
+    cur = conn.execute(
+        "INSERT INTO members (name, designation, phone, email) VALUES (%s,%s,%s,%s) RETURNING id",
         (name.strip(), designation.strip(), phone.strip(), email.strip()),
     )
+    mid = cur.fetchone()["id"]
     conn.commit()
-    mid = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     conn.close()
     return mid
 
@@ -185,7 +198,7 @@ def add_member(name, designation, phone, email):
 def update_member(member_id, name, designation, phone, email):
     conn = get_conn()
     conn.execute(
-        "UPDATE members SET name=?, designation=?, phone=?, email=? WHERE id=?",
+        "UPDATE members SET name=%s, designation=%s, phone=%s, email=%s WHERE id=%s",
         (name.strip(), designation.strip(), phone.strip(), email.strip(), member_id),
     )
     conn.commit()
@@ -194,10 +207,9 @@ def update_member(member_id, name, designation, phone, email):
 
 def delete_member(member_id):
     conn = get_conn()
-    # Orphaned refs: nullify references before deleting
-    conn.execute("UPDATE sub_programs SET in_charge_id=NULL WHERE in_charge_id=?", (member_id,))
-    conn.execute("UPDATE tasks SET assigned_to=NULL WHERE assigned_to=?", (member_id,))
-    conn.execute("DELETE FROM members WHERE id=?", (member_id,))
+    conn.execute("UPDATE sub_programs SET in_charge_id=NULL WHERE in_charge_id=%s", (member_id,))
+    conn.execute("UPDATE tasks SET assigned_to=NULL WHERE assigned_to=%s", (member_id,))
+    conn.execute("DELETE FROM members WHERE id=%s", (member_id,))
     conn.commit()
     conn.close()
 
@@ -216,7 +228,7 @@ def get_program_categories():
 def get_program_category(category_id):
     conn = get_conn()
     row = conn.execute(
-        "SELECT * FROM program_categories WHERE id=?", (category_id,)
+        "SELECT * FROM program_categories WHERE id=%s", (category_id,)
     ).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -224,12 +236,12 @@ def get_program_category(category_id):
 
 def add_program_category(name, description, sort_order=0):
     conn = get_conn()
-    conn.execute(
-        "INSERT INTO program_categories (name, description, sort_order) VALUES (?,?,?)",
+    cur = conn.execute(
+        "INSERT INTO program_categories (name, description, sort_order) VALUES (%s,%s,%s) RETURNING id",
         (name.strip(), description.strip(), sort_order),
     )
+    cid = cur.fetchone()["id"]
     conn.commit()
-    cid = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     conn.close()
     return cid
 
@@ -237,7 +249,7 @@ def add_program_category(name, description, sort_order=0):
 def update_program_category(category_id, name, description, sort_order):
     conn = get_conn()
     conn.execute(
-        "UPDATE program_categories SET name=?, description=?, sort_order=? WHERE id=?",
+        "UPDATE program_categories SET name=%s, description=%s, sort_order=%s WHERE id=%s",
         (name.strip(), description.strip(), sort_order, category_id),
     )
     conn.commit()
@@ -246,9 +258,8 @@ def update_program_category(category_id, name, description, sort_order):
 
 def delete_program_category(category_id):
     conn = get_conn()
-    # Orphaned refs: nullify category on sub-programs
-    conn.execute("UPDATE sub_programs SET program_category_id=NULL WHERE program_category_id=?", (category_id,))
-    conn.execute("DELETE FROM program_categories WHERE id=?", (category_id,))
+    conn.execute("UPDATE sub_programs SET program_category_id=NULL WHERE program_category_id=%s", (category_id,))
+    conn.execute("DELETE FROM program_categories WHERE id=%s", (category_id,))
     conn.commit()
     conn.close()
 
@@ -268,12 +279,12 @@ def get_sub_programs(category_id=None, status_filter=None, active_only=False, se
     """
     params = []
     if category_id:
-        sql += " AND sp.program_category_id=?"
+        sql += " AND sp.program_category_id=%s"
         params.append(category_id)
     if active_only:
-        sql += " AND sp.due_date >= date('now')"
+        sql += " AND sp.due_date >= CURRENT_DATE::TEXT"
     if search:
-        sql += " AND (sp.title LIKE ? OR sp.description LIKE ?)"
+        sql += " AND (sp.title LIKE %s OR sp.description LIKE %s)"
         params.append(f"%{search}%")
         params.append(f"%{search}%")
     sql += " ORDER BY sp.created_at DESC"
@@ -291,7 +302,7 @@ def get_sub_program(sub_program_id):
         FROM sub_programs sp
         LEFT JOIN program_categories pc ON sp.program_category_id = pc.id
         LEFT JOIN members m ON sp.in_charge_id = m.id
-        WHERE sp.id=?
+        WHERE sp.id=%s
     """, (sub_program_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -300,16 +311,17 @@ def get_sub_program(sub_program_id):
 def add_sub_program(category_id, title, description, due_date, in_charge_id,
                     recurring_type, add_to_calendar, type_flag, notes, parent_id=None):
     conn = get_conn()
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO sub_programs 
             (program_category_id, title, description, due_date, in_charge_id,
              recurring_type, add_to_calendar, type_flag, notes, parent_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
     """, (category_id, title.strip(), description.strip(), due_date or None,
           in_charge_id or None, recurring_type, 1 if add_to_calendar else 0,
           type_flag, notes.strip(), parent_id))
+    sub_id = cur.fetchone()["id"]
     conn.commit()
-    sub_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     conn.close()
     return sub_id
 
@@ -319,10 +331,10 @@ def update_sub_program(sub_id, category_id, title, description, due_date,
     conn = get_conn()
     conn.execute("""
         UPDATE sub_programs SET
-            program_category_id=?, title=?, description=?, due_date=?,
-            in_charge_id=?, recurring_type=?, add_to_calendar=?, 
-            type_flag=?, notes=?, updated_at=datetime('now')
-        WHERE id=?
+            program_category_id=%s, title=%s, description=%s, due_date=%s,
+            in_charge_id=%s, recurring_type=%s, add_to_calendar=%s, 
+            type_flag=%s, notes=%s, updated_at=TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+        WHERE id=%s
     """, (category_id, title.strip(), description.strip(), due_date or None,
           in_charge_id or None, recurring_type, 1 if add_to_calendar else 0,
           type_flag, notes.strip(), sub_id))
@@ -334,16 +346,15 @@ def delete_sub_program(sub_id):
     conn = get_conn()
     row = conn.execute("""
         SELECT COUNT(*) AS c FROM tasks 
-        WHERE sub_program_id=? AND status IN ('open','in_progress')
+        WHERE sub_program_id=%s AND status IN ('open','in_progress')
     """, (sub_id,)).fetchone()
     if row["c"] > 0:
         conn.close()
         return False
-    # Delete generated children first (recurring instances)
-    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id IN (SELECT id FROM sub_programs WHERE parent_id=?)", (sub_id,))
-    conn.execute("DELETE FROM sub_programs WHERE parent_id=?", (sub_id,))
-    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id=?", (sub_id,))
-    conn.execute("DELETE FROM sub_programs WHERE id=?", (sub_id,))
+    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id IN (SELECT id FROM sub_programs WHERE parent_id=%s)", (sub_id,))
+    conn.execute("DELETE FROM sub_programs WHERE parent_id=%s", (sub_id,))
+    conn.execute("UPDATE events SET sub_program_id=NULL WHERE sub_program_id=%s", (sub_id,))
+    conn.execute("DELETE FROM sub_programs WHERE id=%s", (sub_id,))
     conn.commit()
     conn.close()
     return True
@@ -357,7 +368,7 @@ def get_sub_program_members(sub_program_id):
         SELECT m.id, m.name, m.designation
         FROM sub_program_members spm
         JOIN members m ON spm.member_id = m.id
-        WHERE spm.sub_program_id=?
+        WHERE spm.sub_program_id=%s
         ORDER BY m.name
     """, (sub_program_id,)).fetchall()
     conn.close()
@@ -368,11 +379,11 @@ def add_sub_program_member(sub_program_id, member_id):
     conn = get_conn()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO sub_program_members (sub_program_id, member_id) VALUES (?,?)",
+            "INSERT INTO sub_program_members (sub_program_id, member_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
             (sub_program_id, member_id),
         )
         conn.commit()
-    except sqlite3.IntegrityError:
+    except Exception:
         pass
     conn.close()
 
@@ -380,7 +391,7 @@ def add_sub_program_member(sub_program_id, member_id):
 def remove_sub_program_member(sub_program_id, member_id):
     conn = get_conn()
     conn.execute(
-        "DELETE FROM sub_program_members WHERE sub_program_id=? AND member_id=?",
+        "DELETE FROM sub_program_members WHERE sub_program_id=%s AND member_id=%s",
         (sub_program_id, member_id),
     )
     conn.commit()
@@ -392,18 +403,33 @@ def remove_sub_program_member(sub_program_id, member_id):
 def _get_tasks_for_sub_program(sub_program_id):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT status, priority FROM tasks WHERE sub_program_id=?",
+        "SELECT status, priority FROM tasks WHERE sub_program_id=%s",
         (sub_program_id,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
+def _get_tasks_batch(sub_program_ids):
+    if not sub_program_ids:
+        return {}
+    conn = get_conn()
+    placeholders = ",".join("%s" for _ in sub_program_ids)
+    rows = conn.execute(
+        f"SELECT sub_program_id, status, priority FROM tasks WHERE sub_program_id IN ({placeholders})",
+        sub_program_ids,
+    ).fetchall()
+    conn.close()
+    result = {sid: [] for sid in sub_program_ids}
+    for r in rows:
+        result[r["sub_program_id"]].append({"status": r["status"], "priority": r["priority"]})
+    return result
+
+
 def compute_status(tasks):
     if not tasks:
         return "open"
     seen = set(t["status"] for t in tasks)
-    # Partial completion = in_progress
     if "completed" in seen and len(seen) > 1:
         seen.add("in_progress")
     for s in STATUS_CASCADE_ORDER:
@@ -431,11 +457,15 @@ def get_sub_program_derived(sub_program_id):
 
 def get_all_sub_programs_with_status(category_id=None, search=None):
     sub_programs = get_sub_programs(category_id=category_id, search=search)
+    if not sub_programs:
+        return []
+    ids = [sp["id"] for sp in sub_programs]
+    batch = _get_tasks_batch(ids)
     for sp in sub_programs:
-        derived = get_sub_program_derived(sp["id"])
-        sp["derived_status"] = derived["status"]
-        sp["derived_priority"] = derived["priority"]
-        sp["task_count"] = derived["task_count"]
+        tasks = batch.get(sp["id"], [])
+        sp["derived_status"] = compute_status(tasks)
+        sp["derived_priority"] = compute_priority(tasks)
+        sp["task_count"] = len(tasks)
     return sub_programs
 
 
@@ -444,8 +474,12 @@ def get_sub_program_counts():
     all_subs = get_sub_programs()
     counts = {"total": len(all_subs), "open": 0, "in_progress": 0,
               "completed": 0, "on_hold_suspended": 0, "overdue": 0}
+    if not all_subs:
+        return counts
+    ids = [sp["id"] for sp in all_subs]
+    batch = _get_tasks_batch(ids)
     for sp in all_subs:
-        tasks = _get_tasks_for_sub_program(sp["id"])
+        tasks = batch.get(sp["id"], [])
         status = compute_status(tasks)
         if status == "completed":
             counts["completed"] += 1
@@ -455,7 +489,6 @@ def get_sub_program_counts():
             counts["in_progress"] += 1
         else:
             counts["open"] += 1
-        # overdue: not completed/on_hold/suspended AND past due
         if status not in ("completed", "on_hold", "suspended"):
             if sp["due_date"] and sp["due_date"] < today_iso:
                 counts["overdue"] += 1
@@ -467,9 +500,13 @@ def get_sub_program_counts():
 def get_overdue_sub_programs():
     today_iso = date.today().isoformat()
     all_subs = get_sub_programs()
+    if not all_subs:
+        return []
+    ids = [sp["id"] for sp in all_subs]
+    batch = _get_tasks_batch(ids)
     result = []
     for sp in all_subs:
-        tasks = _get_tasks_for_sub_program(sp["id"])
+        tasks = batch.get(sp["id"], [])
         status = compute_status(tasks)
         if status in ("completed", "on_hold", "suspended"):
             continue
@@ -484,9 +521,13 @@ def get_overdue_sub_programs():
 
 def get_active_sub_programs(search=None):
     all_subs = get_sub_programs(search=search)
+    if not all_subs:
+        return []
+    ids = [sp["id"] for sp in all_subs]
+    batch = _get_tasks_batch(ids)
     result = []
     for sp in all_subs:
-        tasks = _get_tasks_for_sub_program(sp["id"])
+        tasks = batch.get(sp["id"], [])
         status = compute_status(tasks)
         if status == "completed":
             continue
@@ -502,18 +543,19 @@ def get_active_sub_programs(search=None):
 
 def get_tasks(sub_program_id, page=1, per_page=100):
     conn = get_conn()
-    count = conn.execute(
-        "SELECT COUNT(*) AS c FROM tasks WHERE sub_program_id=?",
+    count_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM tasks WHERE sub_program_id=%s",
         (sub_program_id,),
-    ).fetchone()["c"]
+    ).fetchone()
+    count = count_row["c"]
     offset = (page - 1) * per_page
     rows = conn.execute("""
         SELECT t.*, m.name AS assigned_name
         FROM tasks t
         LEFT JOIN members m ON t.assigned_to = m.id
-        WHERE t.sub_program_id=?
+        WHERE t.sub_program_id=%s
         ORDER BY t.created_at DESC
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
     """, (sub_program_id, per_page, offset)).fetchall()
     conn.close()
     return [dict(r) for r in rows], count
@@ -527,7 +569,7 @@ def get_task(task_id):
         FROM tasks t
         LEFT JOIN members m ON t.assigned_to = m.id
         LEFT JOIN sub_programs sp ON t.sub_program_id = sp.id
-        WHERE t.id=?
+        WHERE t.id=%s
     """, (task_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -535,13 +577,13 @@ def get_task(task_id):
 
 def add_task(sub_program_id, title, due_date, assigned_to, priority):
     conn = get_conn()
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO tasks (sub_program_id, title, due_date, assigned_to, priority)
-        VALUES (?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s) RETURNING id
     """, (sub_program_id, title.strip(), due_date or None,
           assigned_to or None, priority))
+    tid = cur.fetchone()["id"]
     conn.commit()
-    tid = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     conn.close()
     return tid
 
@@ -550,8 +592,8 @@ def update_task(task_id, title, due_date, assigned_to, priority, status):
     conn = get_conn()
     completed_at = datetime.now().isoformat() if status == "completed" else None
     conn.execute("""
-        UPDATE tasks SET title=?, due_date=?, assigned_to=?, priority=?, 
-               status=?, completed_at=? WHERE id=?
+        UPDATE tasks SET title=%s, due_date=%s, assigned_to=%s, priority=%s, 
+               status=%s, completed_at=%s WHERE id=%s
     """, (title.strip(), due_date or None, assigned_to or None,
           priority, status, completed_at, task_id))
     conn.commit()
@@ -562,7 +604,7 @@ def update_task_status(task_id, status):
     conn = get_conn()
     completed_at = datetime.now().isoformat() if status == "completed" else None
     conn.execute(
-        "UPDATE tasks SET status=?, completed_at=? WHERE id=?",
+        "UPDATE tasks SET status=%s, completed_at=%s WHERE id=%s",
         (status, completed_at, task_id),
     )
     conn.commit()
@@ -571,7 +613,7 @@ def update_task_status(task_id, status):
 
 def delete_task(task_id):
     conn = get_conn()
-    conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    conn.execute("DELETE FROM tasks WHERE id=%s", (task_id,))
     conn.commit()
     conn.close()
 
@@ -588,7 +630,7 @@ def get_due_reminders():
                sp.title AS sub_title, sp.id AS sub_id
         FROM tasks t
         JOIN sub_programs sp ON t.sub_program_id = sp.id
-        WHERE t.due_date=? AND t.status NOT IN ('completed', 'on_hold', 'suspended')
+        WHERE t.due_date=%s AND t.status NOT IN ('completed', 'on_hold', 'suspended')
         ORDER BY t.priority DESC
     """, (today_iso,)).fetchall()
 
@@ -597,7 +639,7 @@ def get_due_reminders():
                sp.title AS sub_title, sp.id AS sub_id
         FROM tasks t
         JOIN sub_programs sp ON t.sub_program_id = sp.id
-        WHERE t.due_date>? AND t.due_date<=? AND t.status NOT IN ('completed', 'on_hold', 'suspended')
+        WHERE t.due_date>%s AND t.due_date<=%s AND t.status NOT IN ('completed', 'on_hold', 'suspended')
         ORDER BY t.due_date, t.priority DESC
     """, (today_iso, week_end)).fetchall()
 
@@ -608,7 +650,7 @@ def get_due_reminders():
 def get_task_updates(task_id):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM task_updates WHERE task_id=? ORDER BY created_at DESC",
+        "SELECT * FROM task_updates WHERE task_id=%s ORDER BY created_at DESC",
         (task_id,),
     ).fetchall()
     conn.close()
@@ -618,11 +660,27 @@ def get_task_updates(task_id):
 def add_task_update(task_id, note):
     conn = get_conn()
     conn.execute(
-        "INSERT INTO task_updates (task_id, note) VALUES (?,?)",
+        "INSERT INTO task_updates (task_id, note) VALUES (%s,%s)",
         (task_id, note.strip()),
     )
     conn.commit()
     conn.close()
+
+
+def get_linkable_sub_programs():
+    """Return non-past-due sub-programs for event/sub-program linking dropdowns."""
+    conn = get_conn()
+    today = date.today().isoformat()
+    rows = conn.execute("""
+        SELECT sp.*, pc.name AS category_name, m.name AS in_charge_name
+        FROM sub_programs sp
+        LEFT JOIN program_categories pc ON sp.program_category_id = pc.id
+        LEFT JOIN members m ON sp.in_charge_id = m.id
+        WHERE sp.due_date IS NULL OR sp.due_date >= %s
+        ORDER BY sp.due_date
+    """, (today,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ─── Events ──────────────────────────────────────────────
@@ -635,15 +693,14 @@ def get_events(year=None, month=None):
              WHERE 1=1"""
     params = []
     if year and month:
-        sql += " AND strftime('%Y', e.start_date)=? AND strftime('%m', e.start_date)=?"
-        params.append(str(year))
-        params.append(f"{int(month):02d}")
+        sql += " AND EXTRACT(YEAR FROM e.start_date::DATE)=%s AND EXTRACT(MONTH FROM e.start_date::DATE)=%s"
+        params.append(year)
+        params.append(month)
     sql += " ORDER BY e.start_date"
     rows = conn.execute(sql, params).fetchall()
 
     events = [dict(r) for r in rows]
 
-    # Expand recurring events into the queried month
     if year and month:
         recurring = conn.execute("""
             SELECT * FROM events
@@ -681,7 +738,7 @@ def get_event(event_id):
         SELECT e.*, sp.title AS sub_program_title
         FROM events e
         LEFT JOIN sub_programs sp ON e.sub_program_id = sp.id
-        WHERE e.id=?
+        WHERE e.id=%s
     """, (event_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -689,13 +746,13 @@ def get_event(event_id):
 
 def add_event(title, sub_program_id, recurring_type, type_flag, start_date, notes):
     conn = get_conn()
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO events (title, sub_program_id, recurring_type, type_flag, start_date, notes)
-        VALUES (?,?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
     """, (title.strip(), sub_program_id or None, recurring_type,
           type_flag, start_date, notes.strip()))
+    event_id = cur.fetchone()["id"]
     conn.commit()
-    event_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     conn.close()
     return event_id
 
@@ -704,8 +761,8 @@ def update_event(event_id, title, sub_program_id, recurring_type, type_flag,
                  start_date, notes):
     conn = get_conn()
     conn.execute("""
-        UPDATE events SET title=?, sub_program_id=?, recurring_type=?, type_flag=?,
-               start_date=?, notes=? WHERE id=?
+        UPDATE events SET title=%s, sub_program_id=%s, recurring_type=%s, type_flag=%s,
+               start_date=%s, notes=%s WHERE id=%s
     """, (title.strip(), sub_program_id or None, recurring_type,
           type_flag, start_date, notes.strip(), event_id))
     conn.commit()
@@ -714,7 +771,13 @@ def update_event(event_id, title, sub_program_id, recurring_type, type_flag,
 
 def delete_event(event_id):
     conn = get_conn()
-    conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+    event = conn.execute("SELECT * FROM events WHERE id=%s", (event_id,)).fetchone()
+    if event and event["sub_program_id"]:
+        conn.execute(
+            "DELETE FROM tasks WHERE sub_program_id=%s AND title=%s",
+            (event["sub_program_id"], event["title"]),
+        )
+    conn.execute("DELETE FROM events WHERE id=%s", (event_id,))
     conn.commit()
     conn.close()
 
@@ -727,18 +790,18 @@ def get_upcoming_schedule(limit=20):
     rows = conn.execute("""
         SELECT id, title, due_date AS event_date, type_flag, 'sub_program' AS source
         FROM sub_programs
-        WHERE add_to_calendar=1 AND due_date >= ?
+        WHERE add_to_calendar=1 AND due_date >= %s
         ORDER BY due_date
-        LIMIT ?
+        LIMIT %s
     """, (today_iso, limit)).fetchall()
     schedule.extend(dict(r) for r in rows)
 
     rows = conn.execute("""
         SELECT id, title, start_date AS event_date, type_flag, 'event' AS source
         FROM events
-        WHERE start_date >= ?
+        WHERE start_date >= %s
         ORDER BY start_date
-        LIMIT ?
+        LIMIT %s
     """, (today_iso, limit)).fetchall()
     schedule.extend(dict(r) for r in rows)
     conn.close()
@@ -757,7 +820,7 @@ def get_calendar_entries(year, month):
     rows = conn.execute("""
         SELECT id, title, type_flag, due_date AS start_date, 'sub_program' AS source
         FROM sub_programs
-        WHERE add_to_calendar=1 AND strftime('%Y-%m', due_date)=?
+        WHERE add_to_calendar=1 AND TO_CHAR(due_date::DATE, 'YYYY-MM')=%s
         ORDER BY due_date
     """, (month_start,)).fetchall()
     entries.extend(dict(r) for r in rows)
@@ -765,18 +828,91 @@ def get_calendar_entries(year, month):
     rows = conn.execute("""
         SELECT id, title, type_flag, start_date, 'event' AS source
         FROM events
-        WHERE recurring_type='none' AND strftime('%Y-%m', start_date)=?
+        WHERE recurring_type='none' AND TO_CHAR(start_date::DATE, 'YYYY-MM')=%s
         ORDER BY start_date
     """, (month_start,)).fetchall()
     entries.extend(dict(r) for r in rows)
 
-    # Expand recurring standalone events
+    _expand_recurring_events(conn, year, month, entries)
+    conn.close()
+    return entries
+
+
+def get_calendar_entries_from_date(year, month):
+    """Fetch calendar entries from given month onward for sidebar 'Later' card."""
+    start_date = date(year, month, 1)
+    end_date = start_date + timedelta(days=180)
+    entries = []
+
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT id, title, type_flag, due_date AS start_date, 'sub_program' AS source
+        FROM sub_programs
+        WHERE add_to_calendar=1 AND due_date >= %s AND due_date <= %s
+        ORDER BY due_date
+    """, (start_date.isoformat(), end_date.isoformat())).fetchall()
+    entries.extend(dict(r) for r in rows)
+
+    rows = conn.execute("""
+        SELECT id, title, type_flag, start_date, 'event' AS source
+        FROM events
+        WHERE recurring_type='none' AND start_date >= %s AND start_date <= %s
+        ORDER BY start_date
+    """, (start_date.isoformat(), end_date.isoformat())).fetchall()
+    entries.extend(dict(r) for r in rows)
+
+    _expand_recurring_events_in_range(conn, start_date, end_date, entries)
+    conn.close()
+
+    seen = set()
+    unique = []
+    for e in entries:
+        key = (e["id"], e["source"], e.get("start_date", "")[:10])
+        if key not in seen:
+            seen.add(key)
+            unique.append(e)
+    unique.sort(key=lambda x: x.get("start_date", ""))
+    return unique
+
+
+def _expand_recurring_events_in_range(conn, start_date, end_date, entries):
+    """Expand recurring standalone events into a date range."""
     recurring = conn.execute("""
         SELECT id, title, type_flag, start_date, recurring_type, notes
         FROM events
         WHERE recurring_type != 'none'
     """).fetchall()
-    conn.close()
+
+    for ev in recurring:
+        ev = dict(ev)
+        delta = RECURRENCE_DELTA.get(ev["recurring_type"])
+        if not delta:
+            continue
+        seed = datetime.strptime(ev["start_date"][:10], "%Y-%m-%d").date()
+
+        gen = 0
+        while True:
+            instance_date = seed + delta * gen
+            if instance_date > end_date:
+                break
+            if instance_date >= start_date and instance_date.isoformat() != ev["start_date"][:10]:
+                entries.append({
+                    "id": ev["id"],
+                    "title": ev["title"],
+                    "type_flag": ev["type_flag"],
+                    "start_date": instance_date.isoformat(),
+                    "source": "event",
+                })
+            gen += 1
+
+
+def _expand_recurring_events(conn, year, month, entries):
+    """Expand recurring standalone events into a given month, appending to entries list."""
+    recurring = conn.execute("""
+        SELECT id, title, type_flag, start_date, recurring_type, notes
+        FROM events
+        WHERE recurring_type != 'none'
+    """).fetchall()
 
     for ev in recurring:
         ev = dict(ev)
@@ -804,8 +940,6 @@ def get_calendar_entries(year, month):
                     "source": "event",
                 })
             gen += 1
-
-    return entries
 
 
 # ─── Recurrence ──────────────────────────────────────────
@@ -842,7 +976,7 @@ def get_next_recurrence_dates(start_date, recurring_type, count=3):
 def get_config(key, default=None):
     conn = get_conn()
     row = conn.execute(
-        "SELECT value FROM app_config WHERE key=?", (key,)
+        "SELECT value FROM app_config WHERE key=%s", (key,)
     ).fetchone()
     conn.close()
     return row["value"] if row else default
@@ -851,7 +985,7 @@ def get_config(key, default=None):
 def set_config(key, value):
     conn = get_conn()
     conn.execute(
-        "INSERT OR REPLACE INTO app_config (key, value) VALUES (?,?)",
+        "INSERT INTO app_config (key, value) VALUES (%s,%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
         (key, str(value)),
     )
     conn.commit()
@@ -896,40 +1030,39 @@ def generate_recurring_instances(force=False):
             next_iso = next_date.isoformat()
 
             existing = conn.execute(
-                "SELECT id FROM sub_programs WHERE parent_id=? AND generation=?",
+                "SELECT id FROM sub_programs WHERE parent_id=%s AND generation=%s",
                 (base["id"], gen),
             ).fetchone()
             if existing:
                 gen += 1
                 continue
 
-            conn.execute("""
+            cur = conn.execute("""
                 INSERT INTO sub_programs 
                     (program_category_id, title, description, due_date, in_charge_id,
                      recurring_type, add_to_calendar, type_flag, notes, parent_id, generation)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
             """, (
                 base["program_category_id"], base["title"], base["description"],
                 next_iso, base["in_charge_id"], base["recurring_type"],
                 base["add_to_calendar"], base["type_flag"], base["notes"],
                 base["id"], gen,
             ))
-            new_sp_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+            new_sp_id = cur.fetchone()["id"]
 
-            # Copy members
             member_rows = conn.execute(
-                "SELECT member_id FROM sub_program_members WHERE sub_program_id=?",
+                "SELECT member_id FROM sub_program_members WHERE sub_program_id=%s",
                 (base["id"],),
             ).fetchall()
             for mr in member_rows:
                 conn.execute(
-                    "INSERT INTO sub_program_members (sub_program_id, member_id) VALUES (?,?)",
+                    "INSERT INTO sub_program_members (sub_program_id, member_id) VALUES (%s,%s)",
                     (new_sp_id, mr["member_id"]),
                 )
 
-            # Copy tasks with shifted dates
             task_rows = conn.execute(
-                "SELECT * FROM tasks WHERE sub_program_id=?", (base["id"],)
+                "SELECT * FROM tasks WHERE sub_program_id=%s", (base["id"],)
             ).fetchall()
             for tr in task_rows:
                 tr = dict(tr)
@@ -940,15 +1073,14 @@ def generate_recurring_instances(force=False):
                     task_due = (next_date + timedelta(days=offset)).isoformat()
                 conn.execute("""
                     INSERT INTO tasks (sub_program_id, title, due_date, assigned_to, priority, status)
-                    VALUES (?,?,?,?,?,?)
+                    VALUES (%s,%s,%s,%s,%s,%s)
                 """, (new_sp_id, tr["title"], task_due, tr["assigned_to"],
                       tr["priority"], "open"))
 
-            # Calendar entry if needed
             if base["add_to_calendar"]:
                 conn.execute("""
                     INSERT INTO events (title, sub_program_id, type_flag, start_date, recurring_type, notes)
-                    VALUES (?,?,?,?,?,?)
+                    VALUES (%s,%s,%s,%s,%s,%s)
                 """, (base["title"], new_sp_id, base["type_flag"], next_iso,
                       base["recurring_type"], ""))
 
@@ -964,12 +1096,12 @@ def generate_recurring_instances(force=False):
 
 def count_generated_children(sub_program_id):
     conn = get_conn()
-    count = conn.execute(
-        "SELECT COUNT(*) AS c FROM sub_programs WHERE parent_id=?",
+    count_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM sub_programs WHERE parent_id=%s",
         (sub_program_id,),
-    ).fetchone()["c"]
+    ).fetchone()
     conn.close()
-    return count
+    return count_row["c"]
 
 
 # ─── User Management ─────────────────────────────────────
@@ -983,21 +1115,21 @@ def get_users():
 
 def get_user(user_id):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE id=%s", (user_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
 def get_user_by_email(email):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE email=%s", (email,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
 def get_user_by_username(username):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE username=%s", (username,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -1008,10 +1140,10 @@ def add_user(username, email, password, role="viewer", display_name="", is_appro
     pw_hash = generate_password_hash(password)
     cur = conn.execute(
         "INSERT INTO users (username, email, password_hash, role, display_name, is_approved)"
-        " VALUES (?,?,?,?,?,?)",
+        " VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
         (username.strip(), email.strip().lower(), pw_hash, role, display_name.strip(), is_approved),
     )
-    uid = cur.lastrowid
+    uid = cur.fetchone()["id"]
     conn.commit()
     conn.close()
     return uid
@@ -1020,7 +1152,7 @@ def add_user(username, email, password, role="viewer", display_name="", is_appro
 def update_user(user_id, username, email, role, display_name):
     conn = get_conn()
     conn.execute(
-        "UPDATE users SET username=?, email=?, role=?, display_name=? WHERE id=?",
+        "UPDATE users SET username=%s, email=%s, role=%s, display_name=%s WHERE id=%s",
         (username.strip(), email.strip().lower(), role, display_name.strip(), user_id),
     )
     conn.commit()
@@ -1031,27 +1163,28 @@ def update_user_password(user_id, password):
     from werkzeug.security import generate_password_hash
     conn = get_conn()
     pw_hash = generate_password_hash(password)
-    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (pw_hash, user_id))
+    conn.execute("UPDATE users SET password_hash=%s WHERE id=%s", (pw_hash, user_id))
     conn.commit()
     conn.close()
 
 
 def set_user_approved(user_id, approved):
     conn = get_conn()
-    conn.execute("UPDATE users SET is_approved=? WHERE id=?", (1 if approved else 0, user_id))
+    conn.execute("UPDATE users SET is_approved=%s WHERE id=%s", (1 if approved else 0, user_id))
     conn.commit()
     conn.close()
 
 
 def delete_user(user_id):
     conn = get_conn()
-    admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND is_approved=1").fetchone()["c"]
+    admin_count_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND is_approved=1").fetchone()
+    admin_count = admin_count_row["c"]
     if admin_count <= 1:
-        target = conn.execute("SELECT role, is_approved FROM users WHERE id=?", (user_id,)).fetchone()
+        target = conn.execute("SELECT role, is_approved FROM users WHERE id=%s", (user_id,)).fetchone()
         if target and target["role"] == "admin" and target["is_approved"]:
             conn.close()
             raise ValueError("Cannot delete the last approved admin user")
-    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id=%s", (user_id,))
     conn.commit()
     conn.close()
 
@@ -1062,8 +1195,3 @@ def verify_user(email, password):
     if user and check_password_hash(user["password_hash"], password):
         return user
     return None
-
-
-# ─── Auto-init ────────────────────────────────────────────
-
-init_db()

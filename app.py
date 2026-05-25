@@ -1,9 +1,6 @@
 import os
-import sys
 import csv
-import webbrowser
 import json
-from threading import Timer
 from datetime import datetime, date, timedelta
 from calendar import monthcalendar
 
@@ -11,6 +8,8 @@ from flask import (
     Flask, render_template, request, redirect,
     url_for, jsonify, flash, session
 )
+
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from models import (
     generate_recurring_instances,
@@ -21,26 +20,24 @@ from models import (
     get_sub_program, add_sub_program, update_sub_program, delete_sub_program,
     get_sub_program_members, add_sub_program_member, remove_sub_program_member,
     get_all_sub_programs_with_status, get_sub_program_counts,
-    get_sub_program_derived,
+    get_sub_program_derived, get_linkable_sub_programs,
     get_overdue_sub_programs, get_active_sub_programs,
     get_tasks, get_task, add_task, update_task, update_task_status, delete_task,
     get_task_updates as _get_task_updates, add_task_update,
     get_events, get_event, add_event, update_event, delete_event,
-    get_calendar_entries, get_upcoming_schedule, get_due_reminders,
+    get_calendar_entries, get_calendar_entries_from_date,
+    get_upcoming_schedule, get_due_reminders,
     get_next_recurrence_dates,
     get_users, get_user, get_user_by_email, get_user_by_username,
     add_user, update_user, update_user_password, set_user_approved, delete_user,
     verify_user,
     TASK_STATUSES, TASK_PRIORITIES, RECURRING_TYPES, TYPE_FLAGS,
-    DB_PATH, get_data_dir, get_conn,
+    get_conn, init_db,
 )
 
-base_path = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
-app = Flask(__name__,
-    template_folder=os.path.join(base_path, 'templates'),
-    static_folder=os.path.join(base_path, 'static'))
-app.secret_key = "chms-secret-key"
-app.config["APP_VERSION"] = "1.0.0"
+app = Flask(__name__)
+app.secret_key = os.environ.get("CHMS_SECRET_KEY", "chms-secret-key")
+app.config["APP_VERSION"] = "1.1.0"
 
 LAST_RECURRENCE_CHECK = None
 
@@ -87,7 +84,8 @@ def get_task_updates(task_id):
 def inject_current_user():
     uid = session.get("user_id")
     user = get_user(uid) if uid else None
-    return dict(current_user=user)
+    categories = get_program_categories()
+    return dict(current_user=user, categories=categories)
 
 
 from functools import wraps
@@ -203,8 +201,7 @@ def logout():
 @require_admin
 def user_list():
     users = get_users()
-    cats = get_program_categories()
-    return render_template("users.html", users=users, categories=cats)
+    return render_template("users.html", users=users)
 
 
 @app.route("/users/add", methods=["GET", "POST"])
@@ -219,19 +216,19 @@ def user_add():
 
         if not username or not email or not password:
             flash("Username, email, and password are required", "error")
-            return render_template("user_form.html", user=None, categories=get_program_categories())
+            return render_template("user_form.html", user=None)
         if get_user_by_email(email):
             flash("Email already registered", "error")
-            return render_template("user_form.html", user=None, categories=get_program_categories())
+            return render_template("user_form.html", user=None)
         if get_user_by_username(username):
             flash("Username already taken", "error")
-            return render_template("user_form.html", user=None, categories=get_program_categories())
+            return render_template("user_form.html", user=None)
 
         add_user(username, email, password, role, display_name, 1)
         flash("User created and approved", "success")
         return redirect(url_for("user_list"))
 
-    return render_template("user_form.html", user=None, categories=get_program_categories())
+    return render_template("user_form.html", user=None)
 
 
 @app.route("/users/<int:uid>/edit", methods=["GET", "POST"])
@@ -250,23 +247,23 @@ def user_edit(uid):
 
         if not username or not email:
             flash("Username and email are required", "error")
-            return render_template("user_form.html", user=user, categories=get_program_categories())
+            return render_template("user_form.html", user=user)
 
         other = get_user_by_email(email)
         if other and other["id"] != uid:
             flash("Email already in use", "error")
-            return render_template("user_form.html", user=user, categories=get_program_categories())
+            return render_template("user_form.html", user=user)
 
         other = get_user_by_username(username)
         if other and other["id"] != uid:
             flash("Username already taken", "error")
-            return render_template("user_form.html", user=user, categories=get_program_categories())
+            return render_template("user_form.html", user=user)
 
         update_user(uid, username, email, role, display_name)
         flash("User updated", "success")
         return redirect(url_for("user_list"))
 
-    return render_template("user_form.html", user=user, categories=get_program_categories())
+    return render_template("user_form.html", user=user)
 
 
 @app.route("/users/<int:uid>/password", methods=["GET", "POST"])
@@ -280,11 +277,11 @@ def user_password(uid):
         new_pw = request.form.get("password", "")
         if not new_pw:
             flash("Password is required", "error")
-            return render_template("admin_password.html", target=user, categories=get_program_categories())
+            return render_template("admin_password.html", target=user)
         update_user_password(uid, new_pw)
         flash(f"Password reset for {user['display_name'] or user['username']}", "success")
         return redirect(url_for("user_list"))
-    return render_template("admin_password.html", target=user, categories=get_program_categories())
+    return render_template("admin_password.html", target=user)
 
 
 @app.route("/users/<int:uid>/approve", methods=["POST"])
@@ -325,22 +322,21 @@ def change_password():
         confirm = request.form.get("confirm_password", "")
 
         user = get_user(uid)
-        from werkzeug.security import check_password_hash
         if not check_password_hash(user["password_hash"], current):
             flash("Current password is incorrect", "error")
-            return render_template("password.html", categories=get_program_categories())
+            return render_template("password.html")
         if new_pw != confirm:
             flash("New passwords do not match", "error")
-            return render_template("password.html", categories=get_program_categories())
+            return render_template("password.html")
         if not new_pw:
             flash("New password is required", "error")
-            return render_template("password.html", categories=get_program_categories())
+            return render_template("password.html")
 
         update_user_password(uid, new_pw)
         flash("Password changed successfully", "success")
         return redirect(url_for("dashboard"))
 
-    return render_template("password.html", categories=get_program_categories())
+    return render_template("password.html")
 
 
 # ─── Dashboard ──────────────────────────────────────────
@@ -352,10 +348,8 @@ def dashboard():
     overdue_subs = get_overdue_sub_programs()
     active_subs = get_active_sub_programs()
     schedule = get_upcoming_schedule(20)
-    categories = get_program_categories()
     due_today, due_this_week = get_due_reminders()
 
-    # Counts for chart
     chart_counts = {
         "open": counts.get("open", 0),
         "in_progress": counts.get("in_progress", 0),
@@ -370,7 +364,6 @@ def dashboard():
         overdue_subs=overdue_subs,
         active_subs=active_subs,
         schedule=schedule,
-        categories=categories,
         due_today=due_today,
         due_this_week=due_this_week,
         chart_counts=chart_counts,
@@ -395,7 +388,7 @@ def programs_landing():
                 subs = [s for s in subs if s["derived_status"] == status_filter]
         c["sub_count"] = len(subs)
         c["active_count"] = sum(1 for s in subs if s["derived_status"] != "completed")
-    return render_template("programs.html", categories=categories, status=status_filter)
+    return render_template("programs.html", status=status_filter)
 
 
 @app.route("/programs/<int:cat_id>")
@@ -416,11 +409,10 @@ def program_category(cat_id):
         else:
             subs = [s for s in subs if s["derived_status"] == status_filter]
     members = get_members()
-    categories = get_program_categories()
     return render_template(
         "category.html",
         category=category, subs=subs,
-        members=members, categories=categories,
+        members=members,
         search=search, status=status_filter,
         recurring_types=RECURRING_TYPES,
         type_flags=TYPE_FLAGS,
@@ -440,11 +432,10 @@ def sub_program_detail(sub_id):
     total_pages = max(1, (total_tasks + 49) // 50)
     team = get_sub_program_members(sub_id)
     members = get_members()
-    categories = get_program_categories()
     return render_template(
         "sub_program.html",
         sub=sub, derived=derived, tasks=tasks,
-        team=team, members=members, categories=categories,
+        team=team, members=members,
         statuses=TASK_STATUSES, priorities=TASK_PRIORITIES,
         page=page, total_pages=total_pages, total_tasks=total_tasks,
     )
@@ -474,10 +465,9 @@ def sub_program_add():
         flash("Sub-program created", "success")
         return redirect(url_for("program_category", cat_id=request.form["program_category_id"]))
     members = get_members()
-    categories = get_program_categories()
     return render_template(
         "sub_program_form.html", sub=None,
-        members=members, categories=categories,
+        members=members,
         recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
     )
 
@@ -501,7 +491,7 @@ def sub_program_edit(sub_id):
                 recurring_changed = new_recurring != sub["recurring_type"]
                 if due_changed or recurring_changed:
                     child_dates = get_conn().execute(
-                        "SELECT due_date FROM sub_programs WHERE parent_id=? ORDER BY due_date",
+                        "SELECT due_date FROM sub_programs WHERE parent_id=%s ORDER BY due_date",
                         (sub_id,),
                     ).fetchall()
                     dates = ", ".join(r["due_date"] for r in child_dates[:3])
@@ -524,11 +514,11 @@ def sub_program_edit(sub_id):
         conn = None
         try:
             conn = get_conn()
-            conn.execute("DELETE FROM sub_program_members WHERE sub_program_id=?", (sub_id,))
+            conn.execute("DELETE FROM sub_program_members WHERE sub_program_id=%s", (sub_id,))
             member_ids = request.form.getlist("member_ids")
             for mid in member_ids:
                 conn.execute(
-                    "INSERT INTO sub_program_members (sub_program_id, member_id) VALUES (?,?)",
+                    "INSERT INTO sub_program_members (sub_program_id, member_id) VALUES (%s,%s)",
                     (sub_id, int(mid)),
                 )
             conn.commit()
@@ -545,10 +535,9 @@ def sub_program_edit(sub_id):
     team = get_sub_program_members(sub_id)
     team_ids = [m["id"] for m in team]
     members = get_members()
-    categories = get_program_categories()
     return render_template(
         "sub_program_form.html", sub=sub, team_ids=team_ids,
-        members=members, categories=categories,
+        members=members,
         recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
     )
 
@@ -576,7 +565,7 @@ def sub_program_add_note(sub_id):
     try:
         from models import get_conn
         conn = get_conn()
-        conn.execute("UPDATE sub_programs SET notes=?, updated_at=datetime('now') WHERE id=?",
+        conn.execute("UPDATE sub_programs SET notes=%s, updated_at=TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') WHERE id=%s",
                      (notes, sub_id))
         conn.commit()
     finally:
@@ -716,9 +705,12 @@ def calendar_view():
     prev_year = year if month > 1 else year - 1
 
     month_entries = get_calendar_entries(year, month)
+    next_m = month + 1 if month < 12 else 1
+    next_y = year + 1 if month == 12 else year
+    later_entries = get_calendar_entries_from_date(next_y, next_m)
     month_events = get_events(year=year, month=month)
     members = get_members()
-    categories = get_program_categories()
+    event_type_flags = [f for f in TYPE_FLAGS if f != "Program"]
 
     return render_template(
         "calendar.html",
@@ -729,13 +721,15 @@ def calendar_view():
         today=today_dt.isoformat(),
         entries_by_date=entries_by_date,
         month_entries=month_entries,
+        later_entries=later_entries,
         month_events=month_events,
-        members=members, categories=categories,
+        members=members,
         months=[
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December",
         ],
         recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
+        event_type_flags=event_type_flags,
     )
 
 
@@ -763,11 +757,10 @@ def event_add():
         sub_id = request.form.get("sub_program_id", type=int)
 
         if sub_id:
-            from models import get_sub_program
             sp = get_sub_program(sub_id)
             if sp and sp["due_date"] and sp["due_date"] < start_date:
                 flash("Event date cannot be after the linked sub-program's due date", "error")
-                subs = get_all_sub_programs_with_status()
+                subs = get_linkable_sub_programs()
                 members = get_members()
                 return render_template(
                     "event_form.html", event=None,
@@ -804,22 +797,33 @@ def event_add():
                 flash(f"Recurring ({rt}): next instances on " + ", ".join(next_dates), "success")
         return redirect(url_for("calendar_view"))
 
-    subs = get_all_sub_programs_with_status()
+    subs = get_linkable_sub_programs()
     members = get_members()
+    event_type_flags = [f for f in TYPE_FLAGS if f != "Program"]
     return render_template(
         "event_form.html", event=None,
         subs=subs, members=members,
-        recurring_types=RECURRING_TYPES, type_flags=TYPE_FLAGS,
+        recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
     )
 
 
-@app.route("/events/<int:eid>/edit", methods=["POST"])
+@app.route("/events/<int:eid>/edit", methods=["GET", "POST"])
 @require_write
 def event_edit(eid):
     event = get_event(eid)
     if not event:
         flash("Event not found", "error")
         return redirect(url_for("calendar_view"))
+
+    if request.method == "GET":
+        subs = get_linkable_sub_programs()
+        members = get_members()
+        event_type_flags = [f for f in TYPE_FLAGS if f != "Program"]
+        return render_template(
+            "event_form.html", event=event,
+            subs=subs, members=members,
+            recurring_types=RECURRING_TYPES, type_flags=event_type_flags,
+        )
 
     update_event(
         event_id=eid,
@@ -865,13 +869,15 @@ def category_add():
     return render_template("category_form.html", category=None)
 
 
-@app.route("/programs/category/<int:cat_id>/edit", methods=["POST"])
+@app.route("/programs/category/<int:cat_id>/edit", methods=["GET", "POST"])
 @require_write
 def category_edit(cat_id):
     cat = get_program_category(cat_id)
     if not cat:
         flash("Category not found", "error")
         return redirect(url_for("programs_landing"))
+    if request.method == "GET":
+        return render_template("category_form.html", category=cat)
     update_program_category(
         category_id=cat_id,
         name=request.form["name"],
@@ -896,8 +902,7 @@ def category_delete(cat_id):
 @login_required
 def member_list():
     members = get_members()
-    categories = get_program_categories()
-    return render_template("members.html", members=members, categories=categories)
+    return render_template("members.html", members=members)
 
 
 @app.route("/members/add", methods=["GET", "POST"])
@@ -942,21 +947,48 @@ def member_delete(mid):
     if not member:
         flash("Member not found", "error")
         return redirect(url_for("member_list"))
-    # Count orphaned refs for warning
     conn = get_conn()
-    sp_count = conn.execute("SELECT COUNT(*) AS c FROM sub_programs WHERE in_charge_id=?", (mid,)).fetchone()["c"]
-    task_count = conn.execute("SELECT COUNT(*) AS c FROM tasks WHERE assigned_to=?", (mid,)).fetchone()["c"]
+    today = date.today().isoformat()
+    # Check open tasks
+    open_tasks = conn.execute(
+        "SELECT COUNT(*) AS c FROM tasks WHERE assigned_to=%s AND status NOT IN ('completed','on_hold','suspended')",
+        (mid,),
+    ).fetchone()["c"]
+    # Check non-completed sub-programs where member is in charge
+    active_subs = conn.execute(
+        "SELECT COUNT(*) AS c FROM sub_programs WHERE in_charge_id=%s AND (due_date IS NULL OR due_date >= %s)",
+        (mid, today),
+    ).fetchone()["c"]
+    # Check non-completed sub-programs where member is on the team
+    team_subs = conn.execute("""
+        SELECT COUNT(*) AS c FROM sub_program_members spm
+        JOIN sub_programs sp ON spm.sub_program_id = sp.id
+        WHERE spm.member_id=%s AND sp.due_date IS NOT NULL AND sp.due_date >= %s
+    """, (mid, today)).fetchone()["c"]
+    # Check future events linked to sub-programs where member is involved
+    future_events = conn.execute("""
+        SELECT COUNT(*) AS c FROM events e
+        JOIN sub_programs sp ON e.sub_program_id = sp.id
+        WHERE e.start_date >= %s AND (sp.in_charge_id=%s OR sp.id IN (
+            SELECT sub_program_id FROM sub_program_members WHERE member_id=%s
+        ))
+    """, (today, mid, mid)).fetchone()["c"]
     conn.close()
-    parts = []
-    if sp_count:
-        parts.append(f"{sp_count} sub-program(s)")
-    if task_count:
-        parts.append(f"{task_count} task(s)")
+
+    blocks = []
+    if open_tasks:
+        blocks.append(f"{open_tasks} open task(s)")
+    if active_subs:
+        blocks.append(f"{active_subs} active sub-program(s) as in-charge")
+    if team_subs:
+        blocks.append(f"{team_subs} upcoming sub-program(s) as team member")
+    if future_events:
+        blocks.append(f"{future_events} future event(s)")
+    if blocks:
+        flash("Cannot delete: member is assigned to " + ", ".join(blocks), "error")
+        return redirect(url_for("member_list"))
     delete_member(mid)
-    msg = "Member deleted"
-    if parts:
-        msg += " — references cleared from " + ", ".join(parts)
-    flash(msg, "success")
+    flash("Member deleted", "success")
     return redirect(url_for("member_list"))
 
 
@@ -965,20 +997,19 @@ def member_delete(mid):
 @app.route("/import", methods=["GET", "POST"])
 @require_write
 def import_data():
-    categories = get_program_categories()
     if request.method == "POST":
         entity = request.form.get("entity")
         file = request.files.get("file")
         if not file or not file.filename:
             flash("Please select a file", "error")
-            return render_template("import.html", categories=categories, entity=entity)
+            return render_template("import.html", entity=entity)
 
         content = file.read().decode("utf-8-sig").splitlines()
         reader = csv.DictReader(content)
         rows = list(reader)
         if not rows:
             flash("File is empty or has no valid rows", "error")
-            return render_template("import.html", categories=categories, entity=entity)
+            return render_template("import.html", entity=entity)
 
         imported = 0
         errors = 0
@@ -996,38 +1027,151 @@ def import_data():
                 except Exception:
                     errors += 1
 
-        elif entity == "events":
+        elif entity == "programs":
             for r in rows:
                 try:
-                    add_event(
-                        title=r.get("title", r.get("Title", "")).strip(),
-                        sub_program_id=None,
-                        recurring_type=r.get("recurring_type", r.get("Recurring", "none")).strip(),
-                        type_flag=r.get("type_flag", r.get("Type", "Event")).strip(),
-                        start_date=r.get("start_date", r.get("Date", "")).strip(),
-                        notes=r.get("notes", r.get("Notes", "")).strip(),
+                    name = r.get("name", r.get("Name", "")).strip()
+                    if not name:
+                        errors += 1
+                        continue
+                    add_program_category(
+                        name=name,
+                        description=r.get("description", r.get("Description", "")).strip(),
+                        sort_order=int(r.get("sort_order", r.get("Sort Order", 0)) or 0),
                     )
                     imported += 1
                 except Exception:
                     errors += 1
 
-        elif entity == "tasks":
+        elif entity == "sub_programs":
+            all_members = {m["id"]: m for m in get_members()}
+            cat_lookup = {c["name"].strip().lower(): c["id"] for c in get_program_categories()}
+            member_name_lookup = {m["name"].strip().lower(): m["id"] for m in get_members()}
             for r in rows:
                 try:
+                    title = r.get("title", r.get("Title", "")).strip()
+                    cat_name = r.get("program_category", r.get("Category", "")).strip()
+                    if not title or not cat_name:
+                        errors += 1
+                        continue
+                    cat_id = cat_lookup.get(cat_name.strip().lower())
+                    if cat_id is None:
+                        cat_id = add_program_category(cat_name, "", 99)
+                        cat_lookup[cat_name.strip().lower()] = cat_id
+
+                    in_charge_name = r.get("in_charge", "").strip()
+                    in_charge_id = member_name_lookup.get(in_charge_name.lower()) if in_charge_name else None
+
+                    sp_id = add_sub_program(
+                        category_id=cat_id,
+                        title=title,
+                        description=r.get("description", r.get("Description", "")).strip(),
+                        due_date=r.get("due_date", r.get("Due Date", "")) or None,
+                        in_charge_id=in_charge_id,
+                        recurring_type=r.get("recurring_type", "none").strip(),
+                        add_to_calendar=r.get("add_to_calendar", "0").strip() in ("1", "yes", "true"),
+                        type_flag=r.get("type_flag", "Program").strip(),
+                        notes=r.get("notes", r.get("Notes", "")).strip(),
+                    )
+
+                    team_str = r.get("team_members", r.get("Team Members", "")).strip()
+                    if team_str:
+                        for mid_str in team_str.split(","):
+                            mid_str = mid_str.strip()
+                            if mid_str and mid_str.isdigit():
+                                mid = int(mid_str)
+                                if mid in all_members:
+                                    add_sub_program_member(sp_id, mid)
+
+                    for i in range(1, 11):
+                        t_title = r.get(f"task_{i}_title", r.get(f"Task {i} Title", "")).strip()
+                        if not t_title:
+                            continue
+                        add_task(
+                            sub_program_id=sp_id,
+                            title=t_title,
+                            due_date=r.get(f"task_{i}_due_date", r.get(f"Task {i} Due Date", "")) or None,
+                            assigned_to=int(r.get(f"task_{i}_assigned_to", r.get(f"Task {i} Assigned To", "0")) or 0) or None,
+                            priority=r.get(f"task_{i}_priority", r.get(f"Task {i} Priority", "medium")).strip(),
+                        )
+
+                    imported += 1
+                except Exception:
+                    errors += 1
+
+        elif entity == "tasks":
+            sp_lookup = {}
+            for r in rows:
+                try:
+                    sp_title = r.get("sub_program", r.get("Sub Program", "")).strip()
+                    if sp_title not in sp_lookup:
+                        all_sp = get_all_sub_programs_with_status()
+                        sp_lookup = {s["title"].strip().lower(): s["id"] for s in all_sp}
+                    sp_id = sp_lookup.get(sp_title.lower())
+                    if not sp_id:
+                        errors += 1
+                        continue
+                    title = r.get("title", r.get("Title", "")).strip()
+                    if not title:
+                        errors += 1
+                        continue
+                    assigned_to = int(r.get("assigned_to", r.get("Assigned To", "0")) or 0) or None
                     add_task(
-                        sub_program_id=1,
-                        title=r.get("title", r.get("Title", "")).strip(),
-                        due_date=r.get("due_date", r.get("Due", "")).strip() or None,
-                        assigned_to=None,
+                        sub_program_id=sp_id,
+                        title=title,
+                        due_date=r.get("due_date", r.get("Due Date", "")) or None,
+                        assigned_to=assigned_to,
                         priority=r.get("priority", r.get("Priority", "medium")).strip(),
                     )
                     imported += 1
                 except Exception:
                     errors += 1
 
+        elif entity == "events":
+            sp_lookup = {}
+            for r in rows:
+                try:
+                    title = r.get("title", r.get("Title", "")).strip()
+                    start_date = r.get("start_date", r.get("Date", "")).strip()
+                    type_flag = r.get("type_flag", r.get("Type", "Event")).strip()
+                    if not title or not start_date or not type_flag:
+                        errors += 1
+                        continue
+
+                    sp_title = r.get("sub_program", r.get("Sub Program", "")).strip()
+                    sp_id = None
+                    if sp_title:
+                        if sp_title not in sp_lookup:
+                            all_sp = get_all_sub_programs_with_status()
+                            sp_lookup = {s["title"].strip().lower(): s["id"] for s in all_sp}
+                        sp_id = sp_lookup.get(sp_title.lower())
+
+                    event_id = add_event(
+                        title=title,
+                        sub_program_id=sp_id,
+                        recurring_type=r.get("recurring_type", r.get("Recurring", "none")).strip(),
+                        type_flag=type_flag,
+                        start_date=start_date,
+                        notes=r.get("notes", r.get("Notes", "")).strip(),
+                    )
+
+                    assignee = int(r.get("assignee", r.get("Assignee", "0")) or 0) or None
+                    if sp_id and assignee:
+                        add_task(
+                            sub_program_id=sp_id,
+                            title=title,
+                            due_date=start_date,
+                            assigned_to=assignee,
+                            priority="medium",
+                        )
+
+                    imported += 1
+                except Exception:
+                    errors += 1
+
         else:
             flash("Unknown entity type", "error")
-            return render_template("import.html", categories=categories, entity=entity)
+            return render_template("import.html", entity=entity)
 
         msg = f"Imported {imported} {entity}"
         if errors:
@@ -1035,7 +1179,7 @@ def import_data():
         flash(msg, "success")
         return redirect(url_for("dashboard"))
 
-    return render_template("import.html", categories=categories, entity=None)
+    return render_template("import.html", entity=None)
 
 
 # ─── CSV Export ──────────────────────────────────────────
@@ -1106,47 +1250,22 @@ def export_members_csv():
 
 # ─── Bootstrap ───────────────────────────────────────────
 
-is_fly = os.environ.get("FLY_APP_NAME") is not None
+init_db()
+
+if not os.environ.get("CHMS_TESTING"):
+    admin_pw = os.environ.get("CHMS_ADMIN_PASSWORD", "qazcde@123")
+    existing = get_user_by_email("admin@livingway.church")
+    if not existing:
+        add_user("admin", "admin@livingway.church", admin_pw, "admin", "Administrator", 1)
+        print("Created admin user (admin@livingway.church)")
 
 
 @app.errorhandler(404)
 def not_found(e):
-    categories = get_program_categories()
-    return render_template("404.html", categories=categories), 404
+    return render_template("404.html"), 404
 
-# Auto-seed on first run (runs at import for gunicorn compatibility).
-# Skip when TESTING env is set (test_all.py sets this).
-if not os.environ.get("CHMS_TESTING"):
-    conn = get_conn()
-    needs_seed = conn.execute("SELECT COUNT(*) AS c FROM members").fetchone()["c"] == 0
-    if needs_seed:
-        conn.close()
-        print("First run — seeding database...")
-        import seed
-        seed.seed()
-        print("Database seeded successfully.")
-    else:
-        conn.close()
-
-    # Always ensure admin user exists (covers existing DBs pre-user-management)
-    from models import get_user_by_email, add_user
-    admin_pw = os.environ.get("CHMS_ADMIN_PASSWORD", "qazcde@123")
-    if not get_user_by_email("admin@livingway.church"):
-        add_user("admin", "admin@livingway.church", admin_pw, "admin", "Administrator", 1)
-        print("Created admin user (admin@livingway.church)")
-    else:
-        from werkzeug.security import generate_password_hash
-        conn2 = get_conn()
-        conn2.execute("UPDATE users SET password_hash=?, is_approved=1 WHERE email='admin@livingway.church'",
-                      (generate_password_hash(admin_pw),))
-        conn2.commit()
-        conn2.close()
 
 if __name__ == "__main__":
-    if not os.environ.get("WERKZEUG_RUN_MAIN") and not is_fly:
-        Timer(1.5, lambda: webbrowser.open_new("http://127.0.0.1:5000/")).start()
     port = int(os.environ.get("PORT", 5000))
     print(f"ChMS(prototype) starting on 0.0.0.0:{port}")
-    print(f"Data directory: {get_data_dir()}")
-    print("Close terminal or press Ctrl+C to stop.")
     app.run(host="0.0.0.0", port=port, debug=False)

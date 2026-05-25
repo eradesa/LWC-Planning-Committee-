@@ -10,13 +10,14 @@
 
 <div class="card-grid">
     {% for c in categories %}
-    <a href="{{ url_for('program_category', cat_id=c.id, status=status) if status else url_for('program_category', cat_id=c.id) }}" class="card-link">
-        <div class="card hoverable">
+    <div class="card hoverable" style="position:relative;">
+        <a href="{{ url_for('program_category', cat_id=c.id, status=status) if status else url_for('program_category', cat_id=c.id) }}" class="card-link">
             <div class="card-number">{{ c.active_count }}/{{ c.sub_count }}</div>
             <div class="card-label" style="font-size:14px;font-weight:600;color:#1a3a5c;text-transform:none;">{{ c.name }}</div>
             <div style="font-size:12px;color:#888;">{{ c.active_count }} active</div>
-        </div>
-    </a>
+        </a>
+        <a href="{{ url_for('category_edit', cat_id=c.id) }}" class="btn btn-sm btn-outline" style="position:absolute;top:8px;right:8px;font-size:11px;padding:3px 8px;">Edit</a>
+    </div>
     {% endfor %}
 </div>
 {% endblock %}

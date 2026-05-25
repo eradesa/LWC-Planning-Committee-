@@ -39,7 +39,7 @@
             <select name="sub_program_id" id="subSelect" onchange="updateAssignees()">
                 <option value="">— None —</option>
                 {% for sp in subs %}
-                <option value="{{ sp.id }}" {% if event and event.sub_program_id == sp.id %}selected{% endif %}>{{ sp.title }}</option>
+                <option value="{{ sp.id }}" {% if event and event.sub_program_id == sp.id %}selected{% endif %}>{{ sp.title }}{% if sp.due_date %} — {{ sp.due_date }}{% endif %}</option>
                 {% endfor %}
             </select>
         </div>

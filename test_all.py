@@ -9,18 +9,11 @@ import os, sys, json, tempfile, shutil, unittest
 from datetime import date, timedelta
 
 # Set test DB before importing anything
-TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-os.environ["CHMS_DB_PATH"] = os.path.join(TEST_DIR, "test_chms.db")
+os.environ["DATABASE_URL"] = os.environ.get("DATABASE_URL", "postgres://postgres:chms@localhost:5432/chms_test")
 os.environ["CHMS_TESTING"] = "1"
 
-# Remove any existing test DB
-if os.path.exists(os.environ["CHMS_DB_PATH"]):
-    os.remove(os.environ["CHMS_DB_PATH"])
-
-import seed
 from app import app
 from models import (
-    DB_PATH,
     init_db, get_conn, get_config, set_config,
     add_member, get_members, get_member, update_member, delete_member,
     add_program_category, get_program_categories, get_program_category,
@@ -60,18 +53,139 @@ def count_db(conn, table, where="1=1", params=None):
     return conn.execute(f"SELECT COUNT(*) AS c FROM {table} WHERE {where}", params or []).fetchone()["c"]
 
 
+def _setup_test_data():
+    """Create test data inline (replaces removed seed.py)."""
+    from datetime import date, timedelta
+    conn = get_conn()
+    conn.execute("TRUNCATE TABLE events, sub_program_members, sub_programs, tasks, task_updates, program_categories, members, app_config, users RESTART IDENTITY CASCADE")
+    conn.commit()
+    conn.close()
+    # Admin user
+    admin_pw = "qazcde@123"
+    if not get_user_by_email("admin@livingway.church"):
+        add_user("admin", "admin@livingway.church", admin_pw, "admin", "Administrator", 1)
+    # Members
+    members_data = [
+        ("Pastor Dinesh", "Pastor", "+94 77 123 4567", ""),
+        ("Pastor Dinusha", "Pastor", "", ""),
+        ("Pastor Prasad", "Pastor", "", ""),
+        ("Pastor Shamika", "Pastor", "", ""),
+        ("Rochelle", "Committee Member", "", ""),
+        ("Sacha", "Committee Member", "", ""),
+        ("Anita", "Committee Member", "", ""),
+        ("Seri", "Committee Member", "", ""),
+        ("Suren", "Committee Member", "", ""),
+        ("Yohan", "Committee Member", "", ""),
+        ("Therika", "Committee Member", "", ""),
+        ("Rajith", "Committee Member", "", ""),
+    ]
+    for name, desig, phone, email in members_data:
+        add_member(name, desig, phone, email)
+    members = get_members()
+    # Categories
+    cat_data = [
+        ("Programs & Meetings", "Weekly and monthly church programs and meetings", 1),
+        ("Ministries & Projects", "Church ministries and ongoing projects", 2),
+        ("Admin & Maintenance", "Administrative tasks and building maintenance", 3),
+    ]
+    for name, desc, sort in cat_data:
+        add_program_category(name, desc, sort)
+    cats = get_program_categories()
+    cat_map = {c["name"].strip().lower(): c["id"] for c in cats}
+    # Sub-programs with tasks
+    today = date.today()
+    next_sunday = today + timedelta(days=(6 - today.weekday()))
+    sub_data = [
+        ("Programs & Meetings", "Fathers house", "weekly"),
+        ("Programs & Meetings", "Plan for next Sunday", "weekly"),
+        ("Programs & Meetings", "Sound from heaven", "monthly"),
+        ("Programs & Meetings", "Strategic Teams meeting", "monthly"),
+        ("Programs & Meetings", "Meet and great", "quarterly"),
+        ("Ministries & Projects", "NEW COMERS", "none"),
+        ("Ministries & Projects", "JDC", "none"),
+        ("Ministries & Projects", "ChMS", "none"),
+        ("Ministries & Projects", "YOUNG ADULTS", "none"),
+        ("Ministries & Projects", "MENS", "none"),
+        ("Admin & Maintenance", "PASTORS AND LEADERS", "none"),
+        ("Admin & Maintenance", "ELDERS", "none"),
+        ("Admin & Maintenance", "PLANNING COMMITTEE MEMBERS", "none"),
+        ("Admin & Maintenance", "OFFCIE STAFF", "none"),
+        ("Admin & Maintenance", "SOCIAL MEDIA", "none"),
+        ("Admin & Maintenance", "BUILDING AND MAINTENANCE", "none"),
+    ]
+    for idx, (cat_name, title, freq) in enumerate(sub_data):
+        cat_id = cat_map.get(cat_name.strip().lower(), 1)
+        freq_enum = freq if freq in ("weekly","bi_weekly","monthly","quarterly","annual") else "none"
+        due = None
+        if freq_enum == "weekly":
+            due = (next_sunday + timedelta(days=7 * idx)).isoformat()
+        elif freq_enum == "monthly":
+            due = (today + timedelta(days=30 * (idx + 1))).isoformat()
+        elif freq_enum == "quarterly":
+            due = (today + timedelta(days=91 * (idx + 1))).isoformat()
+        else:
+            due = (next_sunday + timedelta(days=7 * (idx + 1))).isoformat()
+        in_charge_id = members[idx % len(members)]["id"]
+        sp_id = add_sub_program(cat_id, title, "", due, in_charge_id, freq_enum,
+                                1 if freq_enum != "none" else 0, "Program", "")
+        # Add members to each sub-program
+        for m in members[:3]:
+            add_sub_program_member(sp_id, m["id"])
+        # Add a sample task to each sub-program
+        add_task(sp_id, f"Task for {title}", due, in_charge_id, "medium")
+    # Admin & Maintenance extra tasks
+    admin_cat_id = cat_map.get("admin & maintenance")
+    if admin_cat_id:
+        admin_subs = [s for s in get_all_sub_programs_with_status(category_id=admin_cat_id)]
+        admin_tasks_map = {
+            "PASTORS AND LEADERS": ["Schedule monthly leadership meeting", "Prepare ministry progress report"],
+            "ELDERS": ["Review church policies", "Plan elders quarterly meeting"],
+            "PLANNING COMMITTEE MEMBERS": ["Prepare meeting agenda", "Review previous minutes"],
+            "OFFCIE STAFF": ["Coordinate weekly schedule", "Manage office supplies"],
+            "SOCIAL MEDIA": ["Plan weekly content", "Create engagement report"],
+            "BUILDING AND MAINTENANCE": ["Conduct facility inspection", "Schedule repairs"],
+        }
+        for sp in admin_subs:
+            tasks = admin_tasks_map.get(sp["title"].strip().upper())
+            if tasks:
+                for t_title in tasks:
+                    add_task(sp["id"], t_title, None, members[len(members)//2]["id"], "medium")
+    # Ministries extra tasks
+    ministry_cat_id = cat_map.get("ministries & projects")
+    if ministry_cat_id:
+        ministry_subs = [s for s in get_all_sub_programs_with_status(category_id=ministry_cat_id)]
+        ministry_tasks_map = {
+            "NEW COMERS": ["Welcome new members", "Assign follow-up partner"],
+            "JDC": ["Plan children's program", "Recruit volunteers"],
+            "YOUNG ADULTS": ["Plan monthly event", "Coordinate outreach"],
+            "MENS": ["Plan fellowship", "Organize service projects"],
+        }
+        for sp in ministry_subs:
+            tasks = ministry_tasks_map.get(sp["title"].strip().upper())
+            if tasks:
+                for t_title in tasks:
+                    add_task(sp["id"], t_title, None, members[len(members)//2]["id"], "medium")
+    # Events
+    events_data = [
+        ("Youth Sunday", "Event", next_sunday + timedelta(days=7)),
+        ("Leadership Meeting", "Meeting", today + timedelta(days=3)),
+        ("Communion Sunday", "Service", next_sunday + timedelta(days=14)),
+    ]
+    for title, tflag, sdate in events_data:
+        add_event(title, None, "none", tflag, sdate.isoformat(), "")
+    # Init recurrence check
+    set_config("last_recurrence_check", "2000-01-01")
+
+
 def setUpModule():
-    """Seed fresh test DB once before all tests."""
-    seed.seed()
+    """Set up fresh test DB once before all tests."""
+    _setup_test_data()
     # Login as admin so existing route tests work
     client.post("/login", data={"email": "admin@livingway.church", "password": "qazcde@123"}, follow_redirects=True)
 
 
 def tearDownModule():
-    """Clean up test DB after all tests."""
-    db_path = os.environ.get("CHMS_DB_PATH")
-    if db_path and os.path.exists(db_path):
-        os.remove(db_path)
+    """Cleanup placeholder — test DB tables persist for reuse."""
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1033,9 +1147,15 @@ class TestDataIntegrity(unittest.TestCase):
 
     def test_wal_mode_enabled(self):
         conn = get_conn()
-        row = conn.execute("PRAGMA journal_mode").fetchone()
-        conn.close()
-        self.assertEqual(row[0].upper(), "WAL")
+        try:
+            row = conn.execute("PRAGMA journal_mode").fetchone()
+            self.assertEqual(row[0].upper(), "WAL")
+        except Exception:
+            conn._conn.rollback()
+            row = conn.execute("SELECT version()").fetchone()
+            self.assertIn("PostgreSQL", row["version"])
+        finally:
+            conn.close()
 
 
 # ═══════════════════════════════════════════════════════════

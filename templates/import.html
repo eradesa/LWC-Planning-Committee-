@@ -7,12 +7,14 @@
 
 <form method="POST" enctype="multipart/form-data" class="form-card">
     <div class="form-group">
-        <label>Entity Type</label>
+        <label>Entity Type *</label>
         <select name="entity" required>
             <option value="">— Select —</option>
             <option value="members" {% if entity == 'members' %}selected{% endif %}>Members</option>
+            <option value="programs" {% if entity == 'programs' %}selected{% endif %}>Programs (Categories)</option>
+            <option value="sub_programs" {% if entity == 'sub_programs' %}selected{% endif %}>Sub-Programs (with Tasks)</option>
             <option value="tasks" {% if entity == 'tasks' %}selected{% endif %}>Tasks</option>
-            <option value="events" {% if entity == 'events' %}selected{% endif %}>Events</option>
+            <option value="events" {% if entity == 'events' %}selected{% endif %}>Calendar Items (Events/Meetings/Services)</option>
         </select>
     </div>
     <div class="form-group">
@@ -27,12 +29,33 @@
 
 <div class="form-card" style="margin-top:20px;max-width:100%;">
     <h3 style="font-size:14px;color:#1a3a5c;margin-bottom:8px;">Expected CSV Columns</h3>
+    <p style="font-size:12px;color:#888;margin-bottom:12px;">Columns with <strong>*</strong> are mandatory.</p>
     <table>
         <thead><tr><th>Entity</th><th>Columns</th></tr></thead>
         <tbody>
-            <tr><td>Members</td><td><code>name, designation, phone, email</code></td></tr>
-            <tr><td>Tasks</td><td><code>title, due_date, priority</code> (assigned to first sub-program)</td></tr>
-            <tr><td>Events</td><td><code>title, start_date, type_flag, recurring_type, notes</code></td></tr>
+            <tr>
+                <td>Members</td>
+                <td><code><strong>name*</strong>, designation, phone, email</code></td>
+            </tr>
+            <tr>
+                <td>Programs</td>
+                <td><code><strong>name*</strong>, description, sort_order</code></td>
+            </tr>
+            <tr>
+                <td>Sub-Programs</td>
+                <td><code><strong>title*</strong>, <strong>program_category*</strong>, description, due_date, in_charge, recurring_type, add_to_calendar, type_flag, notes, team_members, task_1_title, task_1_due_date, task_1_assigned_to, task_1_priority, task_1_status, (task_2_* ... task_10_*)</code><br>
+                <span style="font-size:11px;color:#888;"><strong>program_category</strong> = category name; <strong>in_charge</strong> = member name; <strong>team_members</strong> = comma-separated member IDs; up to 10 inline tasks per row</span></td>
+            </tr>
+            <tr>
+                <td>Tasks</td>
+                <td><code><strong>sub_program*</strong>, <strong>title*</strong>, due_date, assigned_to, priority, status</code><br>
+                <span style="font-size:11px;color:#888;"><strong>sub_program</strong> = sub-program title; <strong>assigned_to</strong> = member ID</span></td>
+            </tr>
+            <tr>
+                <td>Calendar Items</td>
+                <td><code><strong>title*</strong>, <strong>start_date*</strong>, <strong>type_flag*</strong>, sub_program, recurring_type, notes, assignee</code><br>
+                <span style="font-size:11px;color:#888;"><strong>type_flag</strong> = Event/Meeting/Service; <strong>sub_program</strong> = title (optional, creates linked task if assignee set); <strong>assignee</strong> = member ID</span></td>
+            </tr>
         </tbody>
     </table>
 </div>
