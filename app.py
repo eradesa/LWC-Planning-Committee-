@@ -37,7 +37,7 @@ from models import (
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("CHMS_SECRET_KEY", "chms-secret-key")
-app.config["APP_VERSION"] = "1.1.0"
+app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v.dev")
 
 LAST_RECURRENCE_CHECK = None
 
