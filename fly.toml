@@ -4,7 +4,7 @@
 #
 
 app = 'chms-prototype'
-primary_region = 'ams'
+primary_region = 'sin'
 
 [env]
   PYTHONUNBUFFERED = '1'
