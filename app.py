@@ -40,6 +40,7 @@ app = Flask(__name__,
     template_folder=os.path.join(base_path, 'templates'),
     static_folder=os.path.join(base_path, 'static'))
 app.secret_key = "chms-secret-key"
+app.config["APP_VERSION"] = "1.0.0"
 
 LAST_RECURRENCE_CHECK = None
 
@@ -47,6 +48,11 @@ LAST_RECURRENCE_CHECK = None
 @app.template_global()
 def today():
     return date.today().isoformat()
+
+
+@app.template_global()
+def app_version():
+    return app.config["APP_VERSION"]
 
 
 @app.template_global()

@@ -3,201 +3,283 @@
 ## Purpose
 Replace the existing Excel-based planning committee tracker (`Planning committe.xlsx`) with a web-based system that streamlines task tracking, Sunday service planning, calendar management, and ministry follow-ups for Living Way Church's planning committee.
 
-## Original Excel Analysis
-
-The source file `Planning committe.xlsx` contained **8 sheets** with the following characteristics:
-
-| Sheet | Rows | Columns | Purpose | Key Issues |
-|-------|------|---------|---------|------------|
-| Re cap Sunday service | 2733 (~20 used) | 9 | Weekly post-service issues & follow-ups | 99% empty rows; mixed date formats; no status/assignee |
-| Plan for next Sunday | 73 | 8 | Pre-service role assignments | Static "To be filled" text; no actual data |
-| Programs & meetings | 22 | 12 | Quarterly recurring program scheduling | Only Q1/Q2 visible; no link to calendar |
-| Calander | 21 | 6 | Master church event list | No actual dates; static checklist |
-| Admin & maintenence | 36 | 3 | Pastor/leader tasks & maintenance | Mostly empty; no priority/status |
-| Ministries & Projects 1 | 36 | 6 | New Comers, JDC, ChMS, YA, Mens | 3 separate sheets for same concept |
-| Ministries & projects 2 | 37 | 6 | Women, Missions, Disaster Relief, SS, Teens | Same issues as above |
-| Ministries & projects 3 | 37 | 6 | Alpha Marriage, Sanctuary | Same issues as above |
-
-### Cross-cutting Excel Problems
-- No access control or audit trail
-- No status tracking (open/in-progress/done)
-- No assignee or priority
-- Inconsistent date formats
-- No search/filter across 2733 rows
-- No mobile access
-- No centralized calendar
-
 ## Mapping: Excel → System
 
 | Excel Sheet(s) | System Module | Key Features |
 |----------------|--------------|--------------|
-| Re cap Sunday service | Task Board | Follow-up tracked via task status + comments on 'Plan for Next Sunday' sub-program tasks |
-| Plan for next Sunday | Sub-program (Programs & Meetings) | "Plan for Next Sunday" weekly sub-program with 20 role tasks (Coordinators, Ushers, AV, etc.) |
+| Re cap Sunday service | Task notes | Follow-up tracked via task status + comments on sub-program tasks |
+| Plan for next Sunday | Sub-program (Programs & Meetings) | Weekly sub-program with role tasks (Coordinators, Ushers, AV, etc.) |
 | Programs & meetings + Calander | Calendar | Month grid, color-coded events, date picker |
 | Admin & maintenence | Directory + Task Board | Member list + task CRUD |
-| Ministries & Projects 1/2/3 | Ministries + Task Board | Ministry list; tasks filterable by ministry |
+| Ministries & Projects 1/2/3 | Categories + Task Board | Category list; tasks filterable by category |
 
 ## Tech Stack
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Backend | Flask 3.x (Python) | Lightweight, no ORM needed |
-| Database | SQLite 3 | Single file (`chms.db`), auto-created |
+| Database | SQLite 3 | Single file, auto-created, WAL mode |
 | Templates | Jinja2 | Ships with Flask |
-| Styling | Plain CSS | No frameworks; matches lwc-salary-system theme |
-| PDF | reportlab | Available in requirements but not yet used |
+| Styling | Plain CSS | No frameworks; responsive, print styles |
+| Auth | Flask sessions + werkzeug | Password hashing, role-based access |
+| Charts | Chart.js v4.4.7 | CDN-loaded, dashboard bar chart |
 
 ## Key Design Decisions
 
-1. **Single-user** — no authentication/login. Opens straight to Dashboard.
-2. **No external notifications** — in-app dashboard alerts only (overdue banner).
-3. **SQLite for portability** — single file backup; zero config.
-4. **Mobile-friendly** — responsive layout via CSS media queries.
+1. **Multi-user with login** — email login, 3 roles (admin/power_user/viewer), self-registration pending approval.
+2. **Derived status not stored** — computed live from child tasks (no sync issues). Cascade: on_hold > suspended > in_progress > open > completed.
+3. **Recurrence generation** — daily check via `before_request`, window `[tomorrow, tomorrow+7]`, idempotent via `(parent_id, generation)` uniqueness.
+4. **No external notifications** — in-app dashboard alerts only (due reminders, overdue warnings).
 5. **Color-coded badges** — Red/Green/Yellow/Blue for status/priority (novice-friendly).
+6. **Version number** — `v1.0.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
+7. **Fly.io + Docker** — gunicorn deployment with persistent SQLite volume.
+7. **Windows .exe build** — GitHub Actions + PyInstaller + UPX compression.
 
 ## Architecture
 
 ```
 chms/
-├── app.py              # Flask application (all routes, ~480 lines)
-├── models.py           # SQLite schema init + all query functions (~380 lines)
-├── chms.db             # SQLite database (auto-created on first import)
+├── app.py                  # Flask application (30+ routes, ~1147 lines)
+├── models.py               # SQLite schema + all query functions (~1065 lines)
+├── seed.py                 # Reads seed_data.json, populates DB, creates admin user
+├── seed_data.json          # JSON seed data replacing sub-programs.xlsx
+├── test_all.py             # 114 tests, all pass
+├── Dockerfile              # python:3.12-slim + gunicorn
+├── fly.toml                # Fly.io config (256MB, ams region, chms_data volume)
+├── requirements.txt        # flask, gunicorn
+├── context.md              # This file
+├── todo.md                 # Task tracker
+├── .dockerignore
 ├── static/
-│   └── style.css       # All styles (~420 lines)
-├── templates/          # 11 Jinja2 templates
-│   ├── base.html       # Layout: header, nav, flash messages, footer
-│   ├── dashboard.html  # Summary cards + overdue alert + recent tasks
-│   ├── tasks.html      # Task board with filter bar
-│   ├── task_form.html  # Task create/edit + follow-up notes
-│   ├── members.html    # Member directory list
-│   ├── member_form.html# Member add/edit form
-│   ├── ministries.html # Ministry list
-│   ├── ministry_form.html # Ministry add/edit form
-│   ├── calendar.html   # Month grid + side panel
-│   ├── event_form.html # Event add/edit form
-├── context.md          # This file
-└── todo.md             # Task tracker
+│   └── style.css           # ~500 lines (responsive, badges, print, auth forms)
+├── templates/              # 18 Jinja2 templates
+│   ├── base.html           # Auth-aware nav, flash messages, delete modal
+│   ├── 404.html
+│   ├── dashboard.html      # Summary cards, due reminders, chart, schedule modal
+│   ├── login.html          # Email + password login
+│   ├── register.html       # Self-registration
+│   ├── password.html       # Change own password
+│   ├── admin_password.html # Admin resets user password
+│   ├── users.html          # User list with approve/delete
+│   ├── user_form.html      # Admin add/edit user
+│   ├── programs.html       # Category cards (status-filterable)
+│   ├── category.html       # Sub-program cards per category
+│   ├── sub_program.html    # Task list, notes, inline edit, delete modal
+│   ├── sub_program_form.html # Add/edit sub-program
+│   ├── category_form.html  # Add/edit program category
+│   ├── calendar.html       # Month grid + side panel
+│   ├── event_form.html     # Add/edit event
+│   ├── members.html        # Member directory
+│   ├── member_form.html    # Add/edit member
+│   ├── import.html         # CSV import form
+└── .github/workflows/
+    ├── build.yml           # PyInstaller Windows .exe
+    └── fly-deploy.yml      # Auto-deploy to Fly.io on push to main
 ```
 
-## Database Schema (8 tables)
+## Database Schema (9 tables)
 
 ```sql
 -- Core tables (models.py:init_db)
 members
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  name          TEXT NOT NULL
-  role          TEXT DEFAULT ''
-  phone         TEXT DEFAULT ''
-  email         TEXT DEFAULT ''
-  created_at    TEXT DEFAULT datetime('now')
+  id, name, designation, phone, email, created_at
 
-ministries
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  name          TEXT NOT NULL UNIQUE
-  description   TEXT DEFAULT ''
-  created_at    TEXT DEFAULT datetime('now')
+program_categories
+  id, name, description, sort_order, created_at
+
+sub_programs
+  id, program_category_id FK, title, description, due_date,
+  in_charge_id FK(members), recurring_type, add_to_calendar,
+  type_flag, notes, parent_id FK(sub_programs), generation, created_at, updated_at
+
+sub_program_members
+  id, sub_program_id FK CASCADE, member_id FK CASCADE, UNIQUE pair
 
 tasks
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  title         TEXT NOT NULL
-  description   TEXT DEFAULT ''
-  ministry_id   INTEGER REFERENCES ministries(id)
-  member_id     INTEGER REFERENCES members(id)
-  status        TEXT DEFAULT 'open'  -- open|in_progress|completed|blocked
-  priority      TEXT DEFAULT 'medium' -- low|medium|high|critical
-  due_date      TEXT (ISO date)
-  created_at    TEXT DEFAULT datetime('now')
-  completed_at  TEXT
+  id, sub_program_id FK CASCADE, title, due_date,
+  assigned_to FK(members), status, priority, created_at, completed_at
 
 task_updates
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE
-  note          TEXT NOT NULL
-  created_at    TEXT DEFAULT datetime('now')
+  id, task_id FK CASCADE, note, created_at
 
 events
-  id            INTEGER PRIMARY KEY AUTOINCREMENT
-  title         TEXT NOT NULL
-  event_type    TEXT DEFAULT 'meeting' -- service|program|meeting|special
-  start_date    TEXT NOT NULL (ISO date)
-  notes         TEXT DEFAULT ''
-  created_at    TEXT DEFAULT datetime('now')
+  id, title, sub_program_id FK, recurring_type, type_flag,
+  start_date, notes, created_at
 
+app_config
+  key TEXT PK, value TEXT
+
+users
+  id, username UNIQUE, email UNIQUE, password_hash,
+  role CHECK(admin/power_user/viewer), display_name,
+  is_approved, created_at
 ```
 
-## Route Map (app.py)
+## Route Map
 
-| Method | Route | Module | Description |
-|--------|-------|--------|-------------|
-| GET | `/` | Dashboard | Summary cards, overdue alert, recent tasks, upcoming events |
-| GET | `/tasks` | Tasks | Task board with status/priority/ministry/member filters |
-| GET/POST | `/tasks/add` | Tasks | Create new task |
-| GET/POST | `/tasks/<id>` | Tasks | Task detail + edit + follow-up notes |
-| POST | `/tasks/<id>/status` | Tasks | Quick status change |
-| POST | `/tasks/<id>/delete` | Tasks | Delete task |
-| GET | `/members` | Directory | Member list |
-| GET/POST | `/members/add` | Directory | Add member |
-| GET/POST | `/members/<id>/edit` | Directory | Edit member |
-| POST | `/members/<id>/delete` | Directory | Delete member |
-| GET | `/ministries` | Ministries | Ministry list |
-| GET/POST | `/ministries/add` | Ministries | Add ministry |
-| GET/POST | `/ministries/<id>/edit` | Ministries | Edit ministry |
-| POST | `/ministries/<id>/delete` | Ministries | Delete ministry |
-| GET | `/calendar` | Calendar | Month grid view + side panel |
-| GET/POST | `/events/add` | Calendar | Add event |
-| GET/POST | `/events/<id>/edit` | Calendar | Edit event |
-| POST | `/events/<id>/delete` | Calendar | Delete event |
+### Auth
+| Method | Route | Decorator | Description |
+|--------|-------|-----------|-------------|
+| GET/POST | `/login` | — | Email + password login |
+| GET/POST | `/register` | — | Self-registration (pending approval) |
+| GET | `/logout` | — | Clear session |
+| GET/POST | `/password` | `@login_required` | Change own password |
+
+### User Management (admin)
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/users` | User list |
+| GET/POST | `/users/add` | Create user (auto-approved) |
+| GET/POST | `/users/<id>/edit` | Edit user |
+| GET/POST | `/users/<id>/password` | Admin reset password |
+| POST | `/users/<id>/approve` | Toggle approval |
+| POST | `/users/<id>/delete` | Delete (blocks last admin) |
+
+### Dashboard
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/` | Summary cards, due reminders, chart, upcoming schedule |
+
+### Programs
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/programs` | Category cards (optional `?status=` filter) |
+| GET | `/programs/<cat_id>` | Sub-programs in category (optional `?status=` filter) |
+| GET/POST | `/programs/add` | Add sub-program |
+| GET | `/programs/sub/<sub_id>` | Sub-program detail + tasks |
+| GET/POST | `/programs/sub/<sub_id>/edit` | Edit sub-program |
+| POST | `/programs/sub/<sub_id>/delete` | Delete sub-program |
+| POST | `/programs/sub/<sub_id>/note` | Save notes |
+| POST | `/programs/sub/<sub_id>/tasks/add` | Add task |
+| GET/POST | `/programs/category/add` | Add category |
+| POST | `/programs/category/<cat_id>/edit` | Edit category |
+| POST | `/programs/category/<cat_id>/delete` | Delete category |
+
+### Tasks
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/tasks/<tid>` | Update task (title, status, assignee, notes) |
+| POST | `/tasks/<tid>/delete` | Delete task |
+| POST | `/tasks/<tid>/duplicate` | Duplicate task (+7 days) |
+| POST | `/tasks/<tid>/toggle` | Quick-complete toggle |
+
+### Calendar
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/calendar` | Month grid |
+| GET | `/calendar/event/<eid>` | Event JSON detail |
+| GET/POST | `/events/add` | Add event |
+| POST | `/events/<eid>/edit` | Edit event |
+| POST | `/events/<eid>/delete` | Delete event |
+
+### Members
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/members` | Directory list |
+| GET/POST | `/members/add` | Add member |
+| GET/POST | `/members/<mid>/edit` | Edit member |
+| POST | `/members/<mid>/delete` | Delete member (clears references) |
+
+### Import / Export
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET/POST | `/import` | CSV import (members/tasks/events) |
+| GET | `/export/tasks` | CSV export |
+| GET | `/export/events` | CSV export |
+| GET | `/export/members` | CSV export |
+
+## Auth Decorators
+
+- `@login_required` — redirects to `/login` if not authenticated; rejects unapproved users
+- `@require_write` — requires `admin` or `power_user` role
+- `@require_admin` — requires `admin` role
+- `@app.context_processor injects current_user` — makes `{{ current_user }}` available in all templates
 
 ## Code Conventions
 
 ### models.py
-- Every function opens and closes its own connection (no shared connection)
-- All functions return `list[dict]` or `dict | None`
+- Every function opens and closes its own connection
 - `get_conn()` returns `sqlite3.Row`-based connections with WAL mode + foreign keys
 - `init_db()` is idempotent (uses `CREATE TABLE IF NOT EXISTS`)
-- The `init_db()` call at file bottom auto-creates tables on import
+- Derived status/priority computed in Python (not stored)
+- Recurrence generation uses `(parent_id, generation)` uniqueness to prevent duplicates
 
 ### app.py
-- Template globals: `today()`, `status_badge_class()`, `priority_badge_class()`
-- Flash messages with categories: `"success"` (green) and `"error"` (red)
-- `if __name__ == "__main__":` block: calls `init_db()`, opens browser, starts Flask
+- Template globals: `today()`, `status_color()`, `priority_color()`, `get_task_updates()`
+- Flash messages with categories: `"success"` (green), `"error"` (red)
+- `@login_required` / `@require_write` / `@require_admin` decorators on all routes
 
 ### Templates (Jinja2)
 - All extend `base.html`
-- `base.html`: header with nav links, flash message block, content block, footer
-- CSS classes: `.btn`, `.btn-primary/outline/red/blue/purple/green/gray`, `.badge`, `.badge-open/progress/done/blocked/low/med/high/critical`
-- Form pattern: `.form-card` with `.form-group` > `label + input/select/textarea`, `.form-row` for grid, `.form-actions` for buttons
+- `base.html`: auth-aware nav (hidden when not logged in), flash messages, delete modal
+- CSS classes: `.btn`, `.btn-primary/outline/red`, `.badge-open/progress/done/hold/suspended/low/med/high/critical`
+- Form pattern: `.form-card` > `.form-group` > `label + input/select`, `.form-row`, `.form-actions`
 
 ## Known Limitations & Technical Debt
 
-1. **No pagination** — task list could become slow with 1000+ tasks.
-2. **No export/report** — no PDF or Excel export for committee records.
-3. **Single-user only** — adding login would require session management and user table.
-4. **No data migration** — the original Excel data must be manually re-entered.
-5. **No task deletion cascade** — deleting a member or ministry referenced by a task will leave orphaned foreign keys (the reference becomes null since `ON DELETE SET NULL` is not used).
+1. **N+1 query pattern** — Dashboard and category pages run one query per sub-program to get tasks. Acceptable at current scale.
+2. **No drag-and-drop** — Task board is table-based, not Kanban-style.
+3. **Single timezone** — All dates stored as ISO strings, no timezone handling.
+4. **No file attachments** — Cannot attach photos/PDFs to tasks or events.
+5. **No audit log** — Changes not tracked per user.
 
 ## Setup & Run
 
 ```bash
 # Requirements
-pip install flask
+pip install -r requirements.txt
 
 # Run
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
 python3 app.py
 
 # Opens at http://127.0.0.1:5000
-# Database auto-created at chms/chms.db
+# Database auto-created at ~/.chms/chms.db (Linux) or %APPDATA%/ChMS/chms.db (Windows)
+```
+
+### First login
+- Email: `admin@livingway.church`
+- Password: `qazcde@123`
+
+### Environment variables
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CHMS_DB_PATH` | `~/.chms/chms.db` | Override database location |
+| `CHMS_ADMIN_PASSWORD` | `qazcde@123` | Force-reset admin password on startup |
+| `CHMS_DATA_DIR` | `~/.chms` | Override data directory |
+| `FLY_APP_NAME` | — | Auto-detects Fly.io deployment |
+| `PORT` | `5000` | HTTP port |
+
+### Reset database
+```bash
+rm -f ~/.chms/chms.db && cd /path/to/chms && python3 app.py
+```
+
+## Deployment
+
+### Fly.io
+```bash
+flyctl auth login
+fly volumes create chms_data --region ams --size 1
+fly deploy
+```
+
+### GitHub Actions auto-deploy
+Push to `main` → triggers `.github/workflows/fly-deploy.yml`. Requires `FLY_API_TOKEN` secret in repo.
+
+### Windows .exe
+Push to `main` → triggers `.github/workflows/build.yml`. Artifact: `ChMS.exe`.
+
+## Testing
+```bash
+cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
+rm -f test_chms.db && python3 test_all.py
+# 114 tests, 0 failures, 0 skipped
 ```
 
 ## Future Enhancement Ideas
-
-1. **Multi-user with login** — add `users` table, session auth, role-based access (admin/editor/viewer).
-2. **Excel import** — allow importing the old `Planning committe.xlsx` to seed initial data.
-3. **Email digests** — weekly email to committee with overdue tasks and upcoming Sunday plan.
-4. **Drag-and-drop task board** — Kanban-style column view.
-5. **Recurring events** — ability to set events that repeat weekly/monthly/yearly.
-6. **File attachments** — attach photos/PDFs to tasks and events.
-7. **Audit log** — track who changed what and when (mainly useful when multi-user added).
-8. **Theme settings** — editable church name, logo upload.
-9. **Docker deployment** — Dockerfile + docker-compose for production hosting.
+1. **Drag-and-drop task board** — Kanban-style column view
+2. **File attachments** — attach photos/PDFs to tasks and events
+3. **Audit log** — track who changed what and when
+4. **Theme settings** — editable church name, logo upload
+5. **Email digests** — weekly email with overdue tasks and upcoming schedule

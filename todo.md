@@ -1,141 +1,133 @@
 # ChMS(prototype) Implementation Todo
 
-## Legend
-- `[x]` = completed
-- `[ ]` = pending/not started
-- Items grouped by priority: **P0** (critical) → **P3** (nice-to-have)
+## ✅ Completed
+
+### Core Schema & Models
+- [x] SQLite schema — 9 tables (members, program_categories, sub_programs, sub_program_members, tasks, task_updates, events, app_config, users)
+- [x] All CRUD functions in models.py (~1065 lines)
+- [x] JSON seed data (seed_data.json) replacing Excel dependency
+- [x] openpyxl removed from requirements
+
+### User Management (Multi-user)
+- [x] Login with email + password
+- [x] Self-registration with pending approval
+- [x] 3 roles: admin / power_user / viewer
+- [x] Admin user management (list, add, edit, approve, delete, reset password)
+- [x] Change own password
+- [x] Block unapproved users
+- [x] Role-gated decorators (@login_required, @require_write, @require_admin)
+- [x] All existing routes protected
+- [x] Seeded admin: admin@livingway.church / qazcde@123
+
+### Programs & Sub-Programs
+- [x] Program categories with sort order
+- [x] Sub-programs with derived status/priority from child tasks
+- [x] Type flags (Program / Meeting / Event / Service)
+- [x] Recurring sub-programs (weekly/bi-weekly/monthly/quarterly/annual)
+- [x] Daily recurrence check via before_request
+- [x] Recurrence window: [tomorrow, tomorrow+7]
+- [x] Auto-run recurrence on save (force=True)
+- [x] Edit-block: changing due_date/recurring_type on base with children
+- [x] Generated child instances linked via parent_id + generation
+- [x] Tasks copied to children with shifted due_dates, status reset to open
+- [x] Delete cascade: children deleted when base deleted
+
+### Tasks
+- [x] Full CRUD with status, priority, assigned_to, due_date
+- [x] Server-side due_date validation (task ≤ parent sub-program)
+- [x] Quick-complete toggle (open ↔ completed)
+- [x] Duplicate task (+7 days, "(copy)" suffix)
+- [x] Inline edit (title, due_date, assignee, priority, status)
+- [x] Follow-up notes (task_updates table)
+- [x] Pagination on sub-program detail (50 per page)
+- [x] Status select with auto-submit
+
+### Calendar & Events
+- [x] Month grid calendar view
+- [x] Event CRUD with type flags + recurrence
+- [x] Recurring events expanded on-the-fly (no stored instances)
+- [x] Next recurrence dates shown on save
+- [x] Event date ≤ linked sub-program due_date (validated)
+- [x] Event detail modal on dashboard schedule
+
+### Dashboard
+- [x] Summary cards (total/open/in-progress/completed/hold/overdue)
+- [x] Cards link to filtered program views (?status= param)
+- [x] Due Today / Due This Week reminders
+- [x] Chart.js bar chart (tasks by status)
+- [x] Upcoming Schedule (scrollable, event detail modal)
+- [x] Active sub-programs table with search + sort
+- [x] Overdue sub-programs table
+- [x] Export links (CSV)
+
+### Import / Export
+- [x] CSV import (members, tasks, events)
+- [x] CSV export (tasks, events, members)
+
+### UI Polish
+- [x] Responsive mobile-friendly layout
+- [x] Delete confirmation modals (styled, not browser confirm())
+- [x] Pagination with prev/next links
+- [x] CSS print styles
+- [x] Loading spinner overlay
+- [x] 404 error page
+- [x] Orphaned reference cleanup on delete (members, categories)
+- [x] Color-coded status/priority badges
+- [x] Version number in footer (v1.0.0)
+
+### Deployment
+- [x] Dockerfile (python:3.12-slim, gunicorn, --preload)
+- [x] fly.toml (256MB, ams volume, auto-stop/start)
+- [x] .dockerignore
+- [x] GitHub Actions: PyInstaller build with UPX
+- [x] GitHub Actions: Fly.io auto-deploy on push to main
+- [x] requirements.txt (flask, gunicorn)
+
+### Testing
+- [x] 114 tests (model CRUD, route responses, workflows, edge cases, auth)
+- [x] All tests pass, 0 skipped
+- [x] Runs against isolated test_chms.db
 
 ---
 
-## ✅ Completed (All Phases 1-4)
+## 📋 Remaining
 
-### Phase 1 — Core (Task Board + Directory)
-- [x] 1.1 Create project structure (app.py, directories, context.md, todo.md)
-- [x] 1.2 Implement SQLite schema (models.py with 7 tables)
-- [x] 1.3 Create base.html template (header nav, flash messages, footer)
-- [x] 1.4 Create static/style.css (responsive, badge system, card grid)
-- [x] 1.5 Implement Directory module (list, add, edit, delete members)
-- [x] 1.6 Implement Ministries module (list, add, edit, delete)
-- [x] 1.7 Implement Task Board with status/priority/ministry/member filters
-- [x] 1.8 Implement Task Create/Edit form with all fields
-- [x] 1.9 Implement Task inline status update
-- [x] 1.10 Implement Task follow-up notes (task_updates table + comment UI)
-- [x] 1.11 Seed sample data and verify all CRUD paths
+### P0 — Fly.io deployment (manual, one-time)
+- [ ] `fly volumes create chms_data --region ams --size 1`
+- [ ] `fly deploy`
 
-### Phase 2 — Calendar
-- [x] 2.1 Implement Event CRUD with date picker (4 event types)
-- [x] 2.2 Implement Calendar month grid with event dots + side panel
-
-### Phase 3 — Dashboard & Polish
-- [x] 3.1 Dashboard: summary cards (total/open/in-progress/completed/overdue)
-- [x] 3.2 Dashboard: overdue alert banner (red, links to task list)
-- [x] 3.3 Dashboard: recent tasks table + upcoming events + next Sunday widget
-- [x] 3.4 Final comprehensive testing (all GET + POST routes verified)
+### P0 — GitHub Actions secret
+- [ ] Add `FLY_API_TOKEN` secret to repo (needed for auto-deploy)
 
 ---
 
-## 📋 P0 — Must Have (Bugs/Completeness)
-
-- [ ] **1. Add delete confirmation modals** — Currently only `confirm()` JS dialogs for task/member/ministry/event delete. Replace with proper modal or at minimum ensure all destructive actions have confirmation.
-- [ ] **2. Add pagination to task list** — `get_tasks()` fetches all rows. Add `LIMIT ? OFFSET ?` with page controls when tasks exceed 100.
-- [ ] **3. Handle orphaned references on delete** — When a member or ministry is deleted, tasks referencing them get `NULL`. Either add `ON DELETE SET NULL` or warn user about affected tasks before delete.
-- [ ] **4. Add CSS print styles** — For printing calendar and task lists.
-
----
-
-## 📋 P1 — Should Have (Important Enhancements)
-
-- [ ] **5. Add event recurrence**
-  - Weekly, monthly, yearly repeat options
-  - Store repeat rule in events table (e.g., `repeat: "weekly"`)
-  - Generate instances on the fly in calendar view
-
-- [ ] **6. Add task due-date reminders on dashboard**
-  - "Due today" section (separate from overdue)
-  - "Due this week" section
-  - Color-coded by urgency
-
-- [ ] **7. Add search bar to task board**
-  - Currently only filters (dropdowns). Add a text search for title/description.
-
----
-
-## 📋 P2 — Nice to Have (Future Features)
-
-- [ ] **8. Multi-user support**
-  - Add `users` table with hashed passwords
-  - Add login/logout with Flask sessions
-  - Roles: admin (full), editor (CRUD), viewer (read-only)
-  - Member/task audit trail (`updated_by` fields)
-
-- [ ] **9. Excel/CSV import for initial data**
-  - Upload old `Planning committe.xlsx`
-  - Parse known sheets and insert into corresponding tables
-  - Map columns to schema fields
-
-- [ ] **10. Data export (Excel/CSV)**
-  - Export tasks, members, events as CSV or XLSX
-
-- [ ] **11. Dashboard chart/graph**
-  - Simple bar chart: tasks by status
-  - Calendar heatmap: events per month
-  - Use Chart.js (lightweight, CDN-loaded)
-
-- [ ] **12. Task duplicate / template feature**
-  - "Duplicate task" button for recurring tasks
-  - Task templates for common recurring items
-
----
-
-## 📋 P3 — Polish & Tech Debt
-
-- [ ] **13. Add proper NOT FOUND (404) pages**
-- [ ] **14. Loading states for slow operations**
-- [ ] **15. Keyboard shortcuts**
-- [ ] **16. Dark mode toggle**
-- [ ] **17. i18n / English only is fine** — No change needed; document that UI is English-only
-- [ ] **18. Write unit tests**
-- [ ] **19. Dockerize**
-  - Dockerfile: Python 3.10 slim + Flask
-  - docker-compose.yml for easy startup
-  - Volume mount for persistent DB
-
----
-
-## 🐛 Known Bugs
-
-- (None reported yet — all routes return 200 in integration tests)
-
-## 📝 Notes for Future Developer
+## 📝 Notes
 
 ### How data flows
-1. `models.py:init_db()` auto-runs on import → creates all 7 tables
+1. `models.py:init_db()` auto-runs on import → creates all 9 tables
 2. `app.py` imports all functions from `models.py`
-3. Each route opens a connection, queries, closes
-4. Dashboard computes counts by calling `get_task_count(status)` and `get_overdue_count()` separately
+3. Auth decorators gate every route by role
+4. Recurrence check runs on `before_request`, first request each day
+5. Derived status/priority computed live (not stored)
 
 ### Where to add a new feature
 - **New DB table** → add `CREATE TABLE` to `init_db()` in `models.py`
 - **New query function** → add to `models.py`, export at top
-- **New route** → add to `app.py` with `@app.route`
+- **New route** → add to `app.py` with `@app.route` + appropriate auth decorator
 - **New template** → create in `templates/`, extend `base.html`
 - **New CSS** → add classes to `static/style.css`
 
-### Testing approach
+### Testing
 ```bash
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-rm -f chms.db  # Reset database
-python3 -c "
-import os; os.environ['WERKZEUG_RUN_MAIN'] = 'true'
-from app import app
-with app.test_client() as c:
-    r = c.get('/')
-    print(f'Dashboard: {r.status_code}')
-    # ... test more routes
-"
+rm -f test_chms.db && python3 test_all.py
+# 114 tests, 0 failures
 ```
+
+### Admin credentials
+- Email: `admin@livingway.church` / Password: `qazcde@123`
+- Override with `CHMS_ADMIN_PASSWORD` env var
 
 ### Project location
 - `/home/erangadesaram/Documents/Eranga/Docs/CHMS/chms/`
-- Sibling to `lwc-salary-system/` (reference app for styling)
 - Source Excel: `../Planning committe.xlsx`
