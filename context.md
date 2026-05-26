@@ -33,7 +33,7 @@ Replace the existing Excel-based planning committee tracker (`Planning committe.
 5. **Color-coded badges** — Red/Green/Yellow/Blue for status/priority (novice-friendly).
 6. **Version number** — `v1.1.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
 7. **PostgreSQL via psycopg2** — `_Connection` wrapper class provides `.execute()` returning `RealDictCursor`; `DATABASE_URL` env var; no SQLite fallback.
-8. **Fly.io + Docker** — gunicorn deployment with Neon PostgreSQL (Singapore region).
+8. **Render.com + Docker** — gunicorn deployment with Neon PostgreSQL (Singapore region).
 
 ## Architecture
 
@@ -42,8 +42,7 @@ chms/
 ├── app.py                  # Flask application (30+ routes, ~1271 lines)
 ├── models.py               # PostgreSQL schema + all query functions (~1197 lines)
 ├── test_all.py             # 114 tests for PostgreSQL, all pass
-├── Dockerfile              # python:3.12-slim + gunicorn
-├── fly.toml                # Fly.io config (256MB, sin region)
+├── Dockerfile              # python:3.12-slim + gunicorn ($PORT)
 ├── requirements.txt        # flask, gunicorn, psycopg2-binary
 ├── context.md              # This file
 ├── todo.md                 # Task tracker
@@ -69,9 +68,7 @@ chms/
 │   ├── event_form.html     # Add/edit event
 │   ├── members.html        # Member directory
 │   ├── member_form.html    # Add/edit member
-│   ├── import.html         # CSV import form
-└── .github/workflows/
-    └── fly-deploy.yml      # Auto-deploy to Fly.io on push to main
+│       ├── import.html         # CSV import form
 ```
 
 ## Database Schema (9 tables)
@@ -94,10 +91,12 @@ sub_programs
   title TEXT NOT NULL, description TEXT, due_date TEXT,
   in_charge_id INTEGER REFERENCES members(id),
   recurring_type TEXT CHECK(in 'none','weekly','bi_weekly','monthly','quarterly','annual'),
+  recurring_by TEXT DEFAULT 'date' CHECK(in 'date','day'),
+  recurring_weekday INTEGER, recurring_ordinal INTEGER,
   add_to_calendar INTEGER DEFAULT 0,
-  type_flag TEXT CHECK(in 'Program','Meeting','Event','Service'),
+  type_flag TEXT CHECK(in 'Program','Meeting','Event'),
   notes TEXT, parent_id INTEGER REFERENCES sub_programs(id), generation INTEGER,
-  created_at TEXT, updated_at TEXT
+  expiry_date TEXT, created_at TEXT, updated_at TEXT
 
 sub_program_members
   id SERIAL PRIMARY KEY,
@@ -122,7 +121,10 @@ events
   id SERIAL PRIMARY KEY,
   title TEXT NOT NULL, sub_program_id INTEGER REFERENCES sub_programs(id),
   recurring_type TEXT DEFAULT 'none', type_flag TEXT DEFAULT 'Event',
-  start_date TEXT NOT NULL, notes TEXT, created_at TEXT
+  start_date TEXT NOT NULL, notes TEXT,
+  recurring_by TEXT DEFAULT 'date' CHECK(in 'date','day'),
+  recurring_weekday INTEGER, recurring_ordinal INTEGER,
+  expiry_date TEXT, created_at TEXT
 
 app_config
   key TEXT PRIMARY KEY, value TEXT
@@ -280,18 +282,12 @@ createdb chms_dev
 
 ## Deployment
 
-### Fly.io + Neon
-```bash
-# Set secrets
-flyctl secrets set DATABASE_URL="<neon-connection-string>"
-flyctl secrets set CHMS_ADMIN_PASSWORD="<password>"
+### Render.com (Docker)
 
-# Deploy
-flyctl deploy
-```
-
-### GitHub Actions auto-deploy
-Push to `main` → triggers `.github/workflows/fly-deploy.yml`. Requires `FLY_API_TOKEN` secret in repo.
+1. Connect repo at [dashboard.render.com](https://dashboard.render.com) → New Web Service
+2. Runtime: **Docker** (uses `Dockerfile`, binds to `$PORT`)
+3. Set env vars: `DATABASE_URL`, `CHMS_SECRET_KEY`, `CHMS_ADMIN_PASSWORD`, `APP_VERSION`
+4. Auto-deploys on every push to `main` (native Render integration, no GitHub Actions)
 
 ## Testing
 ```bash

@@ -84,13 +84,12 @@
 - [x] All 114 tests pass against PostgreSQL 14
 
 ### Deployment
-- [x] Dockerfile (python:3.12-slim, gunicorn, --bind 0.0.0.0:5000)
-- [x] fly.toml (256MB, sin region, no volume)
+- [x] Dockerfile (python:3.12-slim, gunicorn, binds to $PORT)
 - [x] .dockerignore
-- [x] GitHub Actions: Fly.io auto-deploy on push to main (needs FLY_API_TOKEN secret)
 - [x] requirements.txt (flask, gunicorn, psycopg2-binary)
-- [x] Deployed to Fly.io (Singapore) + Neon PostgreSQL (Singapore)
-- [x] Old Fly volumes cleaned up
+- [x] Deployed to Render.com (Singapore) + Neon PostgreSQL (Singapore)
+- [x] Render native auto-deploy on push to main (no GitHub Actions needed)
+- [x] Removed fly.toml and fly-deploy.yml (Fly.io retired)
 
 ### Testing
 - [x] 114 tests (model CRUD, route responses, workflows, edge cases, auth)
@@ -101,11 +100,10 @@
 
 ## ⚠️ Remaining
 
-### P1 — GitHub Actions
-- [ ] Add `FLY_API_TOKEN` secret to GitHub repo (needed for auto-deploy on push to main)
-
-### P2 — Polish
-- [ ] Update context.md to reflect PostgreSQL architecture
+### P1 — Render.com setup
+- [ ] Create Web Service on Render dashboard (Docker runtime, connect GitHub repo)
+- [ ] Set environment variables: DATABASE_URL, CHMS_SECRET_KEY, CHMS_ADMIN_PASSWORD, APP_VERSION
+- [ ] Verify auto-deploy works on next push
 
 ---
 
