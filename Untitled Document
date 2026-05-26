@@ -80,5 +80,84 @@ Overdue	COUNT where due_date < today AND status ≠ Completed or On-Hold or Susp
 
 Left column:
 - Overdue Sub-Programs (table, clickable → sub-program detail view)
-- Recent Sub-Programs - All Sub-Programs ≠ Completed or On-Hold or Suspended sorted from due date nearest to furtherest
+- Recent Sub-Programs - All Sub-Programs ≠ Completed sorted from due date nearest to furtherest
+New: Recent Sub-Programs should be sortable and searchable via single seach field.
 
+New: All sup-programs and calander events should have a flag to be selected from a dropdown (Program | Meeting | Event |  Service) and should be displayed in Upcoming Events (as seen right now)
+New: In the Calander page when a event is clicked it should display full details and interaction 
+
+
+
+Right Column
+- Upcoming Schedule — all entries (sub-programs + events) DISPLAY with a type flag sorted by date
+note: All sup-programs and calander events should have a flag to be selected from a dropdown (Program | Meeting | Event |  Service) when entering data.
+
+Each card displays: title, due date, in-charge, derived status badge (colored), derived priority badge, task count (e.g. "3/8 done").- which is easier for users cards or a sortable table with search filter
+
+---------------------------
+
+Pending todos (from todo.md + context.md):
+P0 — Must Have
+- Delete confirmation modals (currently bare confirm() dialogs)
+- Pagination on task list (>100 rows)
+- Handle orphaned refs on member/ministry delete
+- Validate Sunday JSON fields
+- CSS print styles
+P1 — Should Have
+- Make Sunday items/roles DB-driven (remove hardcoded lists in app.py)
+- Export/print for Sunday Recap & Plan
+- Event recurrence for standalone events (currently only sub-programs recur)
+- Task due-date reminders on dashboard (due today/this week)
+- Search bar on task board
+P2 — Nice to Have
+- Multi-user support
+- Excel/CSV import & export
+- Dashboard charts
+- Task duplicate/template feature
+P3 — Polish
+- 404 pages
+- Loading states
+
+
+
+
+
+--------------
+what are these Sunday Recap & Plan are a sub program
+P0 — Must Have
+- Validate Sunday JSON fields
+
+P1 — Should Have
+- Make Sunday items/roles DB-driven (remove hardcoded lists in app.py)
+- Export/print for Sunday Recap & Plan
+- Event recurrence for standalone events (currently only sub-programs recur)
+
+
+Evaluvate the below with deep research of all code effected and ensure programming language best practices are used with performance and memory optimization methods
+Import:
+-The main imports should be "Programs", "Sub Programs" and "Members" format should be specified with mandtory fields marked.
+-for "Sub Programs" all task field should be defined with the option to add to clander (mandtory fields marked) 
+-for clander Events, meetings and services (programs not needed) correct format should be given with the adding to sub program option (mandtory fields marked) 
+
+Calander
+-Below "This Month" the rest should be displayed in order in a new card "Later" both should be scrollable
+-Events, services, and meeting should have a option to be deleted and if they are linked to any sub program, the task from the sub program should also be deleted.
+- Remove the "Program" from the Add Event page Type Flag dropdown (programs can only be sceduled via sup program creation)
+-When adding a calander Events, services, or meeting and linking it to a sub program, in the 'Link to Sub-Program (optional)' field same sub program name is displayed twice (the old one and the new reccured one - name should not be duplicated and past due programs even if they are open should not come to the dropdown  
+
+Programs:
+-Main programs - details should be able to be edited 
+-Main Progran  Discription should be displayed on the program page (if available)
+
+
+Evaluvate the below with deep research of all code effected and ensure programming language best practices are used with performance and memory optimization methods
+Few more issues 
+Calander:
+-Date in Add Event form should be half its size and the rest filled with the next control
+-When scheduling a reoccoring Meeting, Event or Service option should be to select the Day (priority 1) or the date (priority 2) and when its a date it should be on the same date not one day before from the next cycle (now its like taht, check)
+
+sub programs
+-When scheduling a sub program option should be to select the Day (priority 1) or the date (priority 2) 
+now weekly reoccoring subs regenerates the next week one one day before the due date - thay's what i want, now how is it for bi weekly monthly quarterly and anually ? ideally it should be one day before the due date as in weekly - give me a workable sulution before implementation
+
+opencode -s ses_1a9c7e5edffeTGWUKH0yqATOD1
