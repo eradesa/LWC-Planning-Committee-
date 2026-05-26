@@ -1042,7 +1042,7 @@ def _advance_date(seed, freq, gen, recurring_by="date",
     elif freq == "quarterly":
         target_month = seed.month + gen * 3
     elif freq == "annual":
-        target_month = seed.month
+        target_month = seed.month + gen * 12
     else:
         return seed
     target_year = seed.year + (target_month - 1) // 12
