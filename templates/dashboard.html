@@ -1,147 +1,44 @@
 {% extends "base.html" %}
-{% block head %}<meta http-equiv="refresh" content="30">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
 {% block content %}
 <div class="page-header">
     <h2>Dashboard</h2>
     <a href="{{ url_for('sub_program_add') }}" class="btn btn-primary">+ Add New Sub-Program</a>
 </div>
 
-<div class="card-grid">
-    <a href="{{ url_for('programs_landing') }}" class="card-link"><div class="card hoverable"><div class="card-number">{{ counts.total }}</div><div class="card-label">Total Sub-Programs</div></div></a>
-    <a href="{{ url_for('programs_landing', status='open') }}" class="card-link"><div class="card card-open hoverable"><div class="card-number">{{ counts.open }}</div><div class="card-label">Open</div></div></a>
-    <a href="{{ url_for('programs_landing', status='in_progress') }}" class="card-link"><div class="card card-progress hoverable"><div class="card-number">{{ counts.in_progress }}</div><div class="card-label">In-Progress</div></div></a>
-    <a href="{{ url_for('programs_landing', status='on_hold') }}" class="card-link"><div class="card card-hold hoverable"><div class="card-number">{{ counts.on_hold_suspended }}</div><div class="card-label">On-Hold / Suspended</div></div></a>
-    <a href="{{ url_for('programs_landing', status='completed') }}" class="card-link"><div class="card card-done hoverable"><div class="card-number">{{ counts.completed }}</div><div class="card-label">Completed</div></div></a>
-    <a href="{{ url_for('programs_landing', status='overdue') }}" class="card-link"><div class="card card-overdue hoverable"><div class="card-number">{{ counts.overdue }}</div><div class="card-label">Overdue</div></div></a>
-</div>
-
-{% if due_today %}
-<div class="due-section" style="margin-bottom:20px;">
-    <h3 style="font-size:16px;color:#be1e28;margin-bottom:8px;">🔴 Due Today</h3>
-    <div class="table-wrap" style="margin-bottom:12px;">
-        <table>
-            <thead><tr><th>Task</th><th>Sub-Program</th><th>Priority</th></tr></thead>
-            <tbody>
-                {% for t in due_today %}
-                <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
-                    <td><strong>{{ t.title }}</strong></td>
-                    <td>{{ t.sub_title }}</td>
-                    <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<div id="cards-container">
+    <div class="card-grid">
+        <a href="{{ url_for('programs_landing') }}" class="card-link"><div class="card hoverable"><div class="card-number">{{ counts.total }}</div><div class="card-label">Total Sub-Programs</div></div></a>
+        <a href="{{ url_for('programs_landing', status='open') }}" class="card-link"><div class="card card-open hoverable"><div class="card-number">{{ counts.open }}</div><div class="card-label">Open</div></div></a>
+        <a href="{{ url_for('programs_landing', status='in_progress') }}" class="card-link"><div class="card card-progress hoverable"><div class="card-number">{{ counts.in_progress }}</div><div class="card-label">In-Progress</div></div></a>
+        <a href="{{ url_for('programs_landing', status='on_hold') }}" class="card-link"><div class="card card-hold hoverable"><div class="card-number">{{ counts.on_hold_suspended }}</div><div class="card-label">On-Hold / Suspended</div></div></a>
+        <a href="{{ url_for('programs_landing', status='completed') }}" class="card-link"><div class="card card-done hoverable"><div class="card-number">{{ counts.completed }}</div><div class="card-label">Completed</div></div></a>
+        <a href="{{ url_for('programs_landing', status='overdue') }}" class="card-link"><div class="card card-overdue hoverable"><div class="card-number">{{ counts.overdue }}</div><div class="card-label">Overdue</div></div></a>
     </div>
 </div>
-{% endif %}
 
-{% if due_this_week %}
-<div class="due-section" style="margin-bottom:20px;">
-    <h3 style="font-size:16px;color:#856404;margin-bottom:8px;">🟡 Due This Week</h3>
-    <div class="table-wrap" style="margin-bottom:12px;">
-        <table>
-            <thead><tr><th>Task</th><th>Sub-Program</th><th>Due</th><th>Priority</th></tr></thead>
-            <tbody>
-                {% for t in due_this_week %}
-                <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
-                    <td><strong>{{ t.title }}</strong></td>
-                    <td>{{ t.sub_title }}</td>
-                    <td>{{ t.due_date }}</td>
-                    <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
+<div id="due-today-container">{% include "_dashboard_due_today.html" %}</div>
+<div id="due-week-container">{% include "_dashboard_due_week.html" %}</div>
 
 <div class="layout-sidebar">
     <div>
-        {% if overdue_subs %}
-        <h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">⚠ Overdue Sub-Programs</h3>
-        <div class="table-wrap" style="margin-bottom:24px;">
-            <table>
-                <thead><tr>
-                    <th>Title</th><th>Category</th><th>Due</th><th>In-Charge</th><th>Priority</th><th>Tasks</th>
-                </tr></thead>
-                <tbody>
-                    {% for sp in overdue_subs %}
-                    <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
-                        <td><strong>{{ sp.title }}</strong></td>
-                        <td>{{ sp.category_name }}</td>
-                        <td style="color:#be1e28;">{{ sp.due_date }}</td>
-                        <td>{{ sp.in_charge_name or '—' }}</td>
-                        <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
-                        <td>{{ sp.task_count }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
+        <div id="overdue-container">{% include "_dashboard_overdue.html" %}</div>
 
         <h3 style="font-size:16px;color:#1a3a5c;margin-bottom:12px;">All Active Sub-Programs</h3>
         {% if active_subs %}
         <div style="margin-bottom:12px;">
             <input type="text" id="activeSearch" class="search-input" placeholder="Search active sub-programs..." oninput="filterActiveTable()">
         </div>
-        <div class="table-wrap">
-            <table id="activeTable">
-                <thead><tr>
-                    <th onclick="sortActive(0)">Title ↕</th>
-                    <th onclick="sortActive(1)">Category ↕</th>
-                    <th onclick="sortActive(2)">Due ↕</th>
-                    <th onclick="sortActive(3)">In-Charge ↕</th>
-                    <th onclick="sortActive(4)">Status ↕</th>
-                    <th onclick="sortActive(5)">Priority ↕</th>
-                    <th onclick="sortActive(6)">Tasks ↕</th>
-                </tr></thead>
-                <tbody>
-                    {% for sp in active_subs %}
-                    <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
-                        <td><strong>{{ sp.title }}</strong></td>
-                        <td>{{ sp.category_name }}</td>
-                        <td>{{ sp.due_date or '—' }}</td>
-                        <td>{{ sp.in_charge_name or '—' }}</td>
-                        <td><span class="badge {{ status_color(sp.derived_status) }}">{{ sp.derived_status }}</span></td>
-                        <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
-                        <td>{{ sp.task_count }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <p style="color:#999;">No active sub-programs.</p>
         {% endif %}
+        <div id="active-container">{% include "_dashboard_active.html" %}</div>
     </div>
 
     <div>
-        <div class="sidebar-card" style="max-height:340px;display:flex;flex-direction:column;">
+        <div id="schedule-container" class="sidebar-card" style="max-height:340px;display:flex;flex-direction:column;">
             <h3 style="flex-shrink:0;">Upcoming Schedule</h3>
-            <div style="overflow-y:auto;flex:1;">
-            {% if schedule %}
-            {% for item in schedule %}
-            <div class="schedule-item">
-                <div class="schedule-title">
-                    {% if item.source == 'sub_program' %}
-                    <a href="{{ url_for('sub_program_detail', sub_id=item.id) }}">{{ item.title }}</a>
-                    {% else %}
-                    <a href="#" onclick="showEventDetail({{ item.id }});return false;">{{ item.title }}</a>
-                    {% endif %}
-                </div>
-                <div class="schedule-meta">
-                    <span class="schedule-date">{{ item.event_date[:10] }}</span>
-                    <span class="badge badge-med">{{ item.type_flag }}</span>
-                </div>
-            </div>
-            {% endfor %}
-            {% else %}
-            <p style="color:#999;">No upcoming items.</p>
-            {% endif %}
-            </div>
+            <div style="overflow-y:auto;flex:1;">{% include "_dashboard_schedule.html" %}</div>
         </div>
 
         <div class="sidebar-card" style="margin-top:16px;">
@@ -150,31 +47,197 @@
         </div>
 
         <div class="sidebar-card" style="margin-top:16px;">
-            <h3>Export</h3>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <a href="{{ url_for('export_tasks_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Tasks (CSV)</a>
-                <a href="{{ url_for('export_events_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Events (CSV)</a>
-                <a href="{{ url_for('export_members_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Export Members (CSV)</a>
+            <h3>Export (CSV)</h3>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                <a href="{{ url_for('export_members_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Members</a>
+                <a href="{{ url_for('export_programs_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Program Categories</a>
+                <a href="{{ url_for('export_sub_programs_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Sub-Programs</a>
+                <a href="{{ url_for('export_tasks_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Tasks</a>
+                <a href="{{ url_for('export_events_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Events</a>
+                <a href="{{ url_for('export_sp_members_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Sub-Program Members</a>
+                <a href="{{ url_for('export_task_updates_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Task Updates</a>
+                {% if current_user.role == 'admin' %}
+                <hr style="margin:6px 0;border-color:#ddd;">
+                <a href="{{ url_for('export_users_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">Users</a>
+                <a href="{{ url_for('export_app_config_csv') }}" class="btn btn-sm btn-outline" style="text-align:center;">App Config</a>
+                <a href="{{ url_for('export_backup') }}" class="btn btn-sm btn-primary" style="text-align:center;font-weight:600;">⬇ Export Full Backup (ZIP)</a>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
 
+<div id="event-modal-placeholder"></div>
+
 <script>
-function filterActiveTable() {
-    var q = document.getElementById('activeSearch').value.toLowerCase();
-    var rows = document.querySelectorAll('#activeTable tbody tr');
-    rows.forEach(function(r) {
-        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
-    });
+var statusBadge = { 'open':'badge-open', 'in_progress':'badge-progress', 'completed':'badge-done', 'on_hold':'badge-hold', 'suspended':'badge-suspended' };
+var priorityBadge = { 'low':'badge-low', 'medium':'badge-med', 'high':'badge-high', 'critical':'badge-critical' };
+var statusColors = { 'open':'#856404', 'in_progress':'#0a5a96', 'completed':'#28a745', 'on_hold_suspended':'#721c24', 'overdue':'#be1e28' };
+
+function ec(text) {
+    var d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
 }
 
-function sortActive(col) {
+function updateCards(d) {
+    var cards = document.querySelectorAll('#cards-container .card-number');
+    if (!cards.length) return;
+    var keys = ['total','open','in_progress','on_hold_suspended','completed','overdue'];
+    for (var i = 0; i < keys.length && i < cards.length; i++) {
+        cards[i].textContent = d.counts[keys[i]] || 0;
+    }
+}
+
+function updateDueTable(containerId, items, isWeek) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    if (!items || !items.length) {
+        container.innerHTML = '';
+        return;
+    }
+    var color = isWeek ? '#856404' : '#be1e28';
+    var label = isWeek ? 'Due This Week' : 'Due Today';
+    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:' + color + ';margin-bottom:8px;">' + label + '</h3><div class="table-wrap" style="margin-bottom:12px;"><table><thead><tr><th>Task</th><th>Sub-Program</th>' + (isWeek ? '<th>Due</th>' : '') + '<th>Priority</th></tr></thead><tbody>';
+    for (var i = 0; i < items.length; i++) {
+        var t = items[i];
+        var pri = ec(t.priority || 'medium');
+        var pclass = priorityBadge[t.priority] || 'badge-med';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + t.sub_id + '\'">';
+        h += '<td><strong>' + ec(t.title) + '</strong></td><td>' + ec(t.sub_title) + '</td>';
+        if (isWeek) h += '<td>' + ec(t.due_date || '') + '</td>';
+        h += '<td><span class="badge ' + pclass + '">' + pri + '</span></td></tr>';
+    }
+    h += '</tbody></table></div></div>';
+    container.innerHTML = h;
+}
+
+function updateOverdue(d) {
+    var container = document.getElementById('overdue-container');
+    if (!container) return;
+    var rows = d.overdue_subs || [];
+    if (!rows.length) {
+        container.innerHTML = '';
+        return;
+    }
+    var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3><div class="table-wrap" style="margin-bottom:24px;"><table><thead><tr><th>Title</th><th>Category</th><th>Due</th><th>In-Charge</th><th>Priority</th><th>Tasks</th></tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+        var sp = rows[i];
+        var pclass = priorityBadge[sp.derived_priority] || '';
+        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
+        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + ec(sp.category_name || '') + '</td>';
+        h += '<td style="color:#be1e28;">' + ec(sp.due_date || '') + '</td><td>' + ec(sp.in_charge_name || '—') + '</td>';
+        h += '<td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    container.innerHTML = h;
+}
+
+function updateActive(d) {
+    var container = document.getElementById('active-container');
+    if (!container) return;
+    var rows = d.active_subs || [];
+    if (!rows.length) {
+        container.innerHTML = '<p style="color:#999;">No active sub-programs.</p>';
+        return;
+    }
+    var table = container.querySelector('table');
+    var oldTbody = table ? table.querySelector('tbody') : null;
+    var h = '<div class="table-wrap"><table id="activeTable"><thead><tr><th onclick="sortActive(0)">Title \u2195</th><th onclick="sortActive(1)">Category \u2195</th><th onclick="sortActive(2)">Due \u2195</th><th onclick="sortActive(3)">In-Charge \u2195</th><th onclick="sortActive(4)">Status \u2195</th><th onclick="sortActive(5)">Priority \u2195</th><th onclick="sortActive(6)">Tasks \u2195</th></tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+        var sp = rows[i];
+        var sclass = statusBadge[sp.derived_status] || '';
+        var pclass = priorityBadge[sp.derived_priority] || '';
+        var st = sclass ? '<span class="badge ' + sclass + '">' + ec(sp.derived_status) + '</span>' : '—';
+        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
+        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + ec(sp.category_name || '') + '</td>';
+        h += '<td>' + ec(sp.due_date || '—') + '</td><td>' + ec(sp.in_charge_name || '—') + '</td>';
+        h += '<td>' + st + '</td><td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    container.innerHTML = h;
+    applyActiveState();
+}
+
+function updateSchedule(d) {
+    var el = document.querySelector('#schedule-container > div');
+    if (!el) return;
+    var items = d.schedule || [];
+    if (!items.length) {
+        el.innerHTML = '<p style="color:#999;">No upcoming items.</p>';
+        return;
+    }
+    var h = '';
+    for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        h += '<div class="schedule-item"><div class="schedule-title">';
+        if (item.source === 'sub_program') {
+            h += '<a href="/programs/sub/' + item.id + '">' + ec(item.title) + '</a>';
+        } else {
+            h += '<a href="#" onclick="showEventDetail(' + item.id + ');return false;">' + ec(item.title) + '</a>';
+        }
+        h += '</div><div class="schedule-meta">';
+        h += '<span class="schedule-date">' + ec(item.event_date ? item.event_date.slice(0,10) : '') + '</span>';
+        h += ' <span class="badge badge-med">' + ec(item.type_flag || '') + '</span></div></div>';
+    }
+    el.innerHTML = h;
+}
+
+function updateChart(d) {
+    if (!window.dashChart) return;
+    var c = d.chart_counts || {};
+    window.dashChart.data.datasets[0].data = [c.open || 0, c.in_progress || 0, c.completed || 0, c.on_hold_suspended || 0, c.overdue || 0];
+    window.dashChart.update('none');
+}
+
+function applyActiveState() {
+    var q = document.getElementById('activeSearch');
+    if (q && q.value) filterActiveTable();
     var table = document.getElementById('activeTable');
+    if (table && table.dataset.sortCol !== undefined) {
+        var col = parseInt(table.dataset.sortCol);
+        var dir = table.dataset.sortDir || 'asc';
+        sortActive(col, true);
+    }
+}
+
+function fetchDashboardData() {
+    fetch('/dashboard/data')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            updateCards(d);
+            updateDueTable('due-today-container', d.due_today, false);
+            updateDueTable('due-week-container', d.due_this_week, true);
+            updateOverdue(d);
+            updateActive(d);
+            updateSchedule(d);
+            updateChart(d);
+        })
+        .catch(function(e) { console.warn('Dashboard refresh failed', e); });
+}
+
+function filterActiveTable() {
+    var q = document.getElementById('activeSearch');
+    if (!q) return;
+    var val = q.value.toLowerCase();
+    var rows = document.querySelectorAll('#activeTable tbody tr');
+    rows.forEach(function(r) { r.style.display = r.textContent.toLowerCase().includes(val) ? '' : 'none'; });
+    document.getElementById('activeTable').dataset.filter = val;
+}
+
+function sortActive(col, skipToggle) {
+    var table = document.getElementById('activeTable');
+    if (!table) return;
     var tbody = table.querySelector('tbody');
     var rows = Array.from(tbody.querySelectorAll('tr'));
-    var dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
-    table.dataset.sortDir = dir;
+    if (!skipToggle) {
+        var dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+        table.dataset.sortDir = dir;
+    }
+    var dir = table.dataset.sortDir || 'asc';
+    table.dataset.sortCol = col;
     rows.sort(function(a, b) {
         var va = a.cells[col].textContent.trim();
         var vb = b.cells[col].textContent.trim();
@@ -184,9 +247,38 @@ function sortActive(col) {
     rows.forEach(function(r) { tbody.appendChild(r); });
 }
 
+function showEventDetail(eventId) {
+    fetch('/calendar/event/' + eventId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var title = data.title || 'Event';
+            var date = data.date || '—';
+            var type = data.type_flag || '—';
+            var sub = data.sub_program_title || '—';
+            var notes = (data.notes || '').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+            var html = '<div id="eventModal" class="modal" style="display:block;"><div class="modal-content" style="max-width:420px;">';
+            html += '<span class="modal-close" onclick="closeEventModal()">&times;</span>';
+            html += '<h3 style="margin-bottom:12px;">' + ec(title) + '</h3>';
+            html += '<table style="width:100%;"><tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Date</td><td style="padding:4px 0;">' + ec(date) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Type</td><td style="padding:4px 0;">' + ec(type) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Sub-Program</td><td style="padding:4px 0;">' + ec(sub) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Notes</td><td style="padding:4px 0;white-space:pre-wrap;">' + notes + '</td></tr></table>';
+            html += '<div class="form-actions" style="margin-top:16px;"><button type="button" class="btn btn-outline" onclick="closeEventModal()">Close</button></div></div></div>';
+            var ph = document.getElementById('event-modal-placeholder');
+            if (ph) ph.innerHTML = html;
+        })
+        .catch(function() { alert('Could not load event details'); });
+}
+
+function closeEventModal() {
+    var ph = document.getElementById('event-modal-placeholder');
+    if (ph) ph.innerHTML = '';
+}
+
 var counts = {{ chart_counts|tojson }};
-if (document.getElementById('statusChart')) {
-    new Chart(document.getElementById('statusChart'), {
+var ctx = document.getElementById('statusChart');
+if (ctx) {
+    window.dashChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: ['Open', 'In Progress', 'Completed', 'Hold/Susp.', 'Overdue'],
@@ -203,39 +295,6 @@ if (document.getElementById('statusChart')) {
     });
 }
 
-function showEventDetail(eventId) {
-    fetch('/calendar/event/' + eventId)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            document.getElementById('eventTitle').textContent = data.title || 'Event';
-            document.getElementById('eventDate').textContent = data.date || '—';
-            document.getElementById('eventType').textContent = data.type_flag || '—';
-            document.getElementById('eventSub').textContent = data.sub_program_title || '—';
-            document.getElementById('eventNotes').textContent = data.notes || '—';
-            document.getElementById('eventModal').style.display = 'block';
-        })
-        .catch(function() { alert('Could not load event details'); });
-}
-
-function closeEventModal() {
-    document.getElementById('eventModal').style.display = 'none';
-}
+setInterval(fetchDashboardData, 30000);
 </script>
-
-<!-- Event detail modal -->
-<div id="eventModal" class="modal" style="display:none;">
-    <div class="modal-content" style="max-width:420px;">
-        <span class="modal-close" onclick="closeEventModal()">&times;</span>
-        <h3 id="eventTitle" style="margin-bottom:12px;"></h3>
-        <table style="width:100%;">
-            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Date</td><td id="eventDate" style="padding:4px 0;"></td></tr>
-            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Type</td><td id="eventType" style="padding:4px 0;"></td></tr>
-            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Sub-Program</td><td id="eventSub" style="padding:4px 0;"></td></tr>
-            <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Notes</td><td id="eventNotes" style="padding:4px 0;white-space:pre-wrap;"></td></tr>
-        </table>
-        <div class="form-actions" style="margin-top:16px;">
-            <button type="button" class="btn btn-outline" onclick="closeEventModal()">Close</button>
-        </div>
-    </div>
-</div>
 {% endblock %}

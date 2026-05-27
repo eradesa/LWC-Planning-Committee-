@@ -1,0 +1,19 @@
+{% if schedule %}
+{% for item in schedule %}
+<div class="schedule-item">
+    <div class="schedule-title">
+        {% if item.source == 'sub_program' %}
+        <a href="{{ url_for('sub_program_detail', sub_id=item.id) }}">{{ item.title }}</a>
+        {% else %}
+        <a href="#" onclick="showEventDetail({{ item.id }});return false;">{{ item.title }}</a>
+        {% endif %}
+    </div>
+    <div class="schedule-meta">
+        <span class="schedule-date">{{ item.event_date[:10] }}</span>
+        <span class="badge badge-med">{{ item.type_flag }}</span>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p style="color:#999;">No upcoming items.</p>
+{% endif %}

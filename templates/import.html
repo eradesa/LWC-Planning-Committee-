@@ -8,24 +8,49 @@
 <form method="POST" enctype="multipart/form-data" class="form-card">
     <div class="form-group">
         <label>Entity Type *</label>
-        <select name="entity" required>
+        <select name="entity" id="entitySelect" required>
             <option value="">— Select —</option>
             <option value="members" {% if entity == 'members' %}selected{% endif %}>Members</option>
             <option value="programs" {% if entity == 'programs' %}selected{% endif %}>Programs (Categories)</option>
             <option value="sub_programs" {% if entity == 'sub_programs' %}selected{% endif %}>Sub-Programs (with Tasks)</option>
             <option value="tasks" {% if entity == 'tasks' %}selected{% endif %}>Tasks</option>
             <option value="events" {% if entity == 'events' %}selected{% endif %}>Calendar Items (Events/Meetings/Services)</option>
+            <option value="users" {% if entity == 'users' %}selected{% endif %}>Users</option>
+            <option value="app_config" {% if entity == 'app_config' %}selected{% endif %}>App Config</option>
+            <option value="sub_program_members" {% if entity == 'sub_program_members' %}selected{% endif %}>Sub-Program Members</option>
+            <option value="task_updates" {% if entity == 'task_updates' %}selected{% endif %}>Task Updates</option>
+            {% if current_user.role == 'admin' %}
+            <option value="backup_zip" data-zip="1">Full Backup Restore (ZIP)</option>
+            {% endif %}
         </select>
     </div>
     <div class="form-group">
-        <label>CSV File</label>
-        <input type="file" name="file" accept=".csv" required>
+        <label>File <span id="fileLabel">(CSV)</span></label>
+        <input type="file" name="file" id="fileInput" accept=".csv,.zip" required>
     </div>
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">Import</button>
         <a href="{{ url_for('dashboard') }}" class="btn btn-outline">Cancel</a>
     </div>
 </form>
+
+<script>
+document.getElementById('entitySelect').addEventListener('change', function() {
+    var opt = this.options[this.selectedIndex];
+    var isZip = opt.getAttribute('data-zip') === '1';
+    var fi = document.getElementById('fileInput');
+    var fl = document.getElementById('fileLabel');
+    if (isZip) {
+        fi.accept = '.zip';
+        fl.textContent = '(ZIP file)';
+        fi.required = true;
+    } else {
+        fi.accept = '.csv';
+        fl.textContent = '(CSV)';
+        fi.required = true;
+    }
+});
+</script>
 
 <div class="form-card" style="margin-top:20px;max-width:100%;">
     <h3 style="font-size:14px;color:#1a3a5c;margin-bottom:8px;">Expected CSV Columns</h3>
@@ -43,18 +68,38 @@
             </tr>
             <tr>
                 <td>Sub-Programs</td>
-                <td><code><strong>title*</strong>, <strong>program_category*</strong>, description, due_date, in_charge, recurring_type, add_to_calendar, type_flag, notes, team_members, task_1_title, task_1_due_date, task_1_assigned_to, task_1_priority, task_1_status, (task_2_* ... task_10_*)</code><br>
-                <span style="font-size:11px;color:#888;"><strong>program_category</strong> = category name; <strong>in_charge</strong> = member name; <strong>team_members</strong> = comma-separated member IDs; up to 10 inline tasks per row</span></td>
+                <td><code><strong>title*</strong>, <strong>program_category*</strong>, description, due_date, in_charge, recurring_type, add_to_calendar, type_flag, notes, team_members, task_1_title, task_1_due_date, task_1_assigned_to, task_1_priority, (task_2_* ... task_10_*)</code><br>
+                <span style="font-size:11px;color:#888;"><strong>program_category</strong> = category name; <strong>in_charge</strong> / <strong>task_*_assigned_to</strong> = member name; <strong>team_members</strong> = comma-separated member IDs; up to 10 inline tasks per row</span></td>
             </tr>
             <tr>
                 <td>Tasks</td>
                 <td><code><strong>sub_program*</strong>, <strong>title*</strong>, due_date, assigned_to, priority, status</code><br>
-                <span style="font-size:11px;color:#888;"><strong>sub_program</strong> = sub-program title; <strong>assigned_to</strong> = member ID</span></td>
+                <span style="font-size:11px;color:#888;"><strong>sub_program</strong> = sub-program title; <strong>assigned_to</strong> = member name</span></td>
             </tr>
             <tr>
                 <td>Calendar Items</td>
-                <td><code><strong>title*</strong>, <strong>start_date*</strong>, <strong>type_flag*</strong>, sub_program, recurring_type, notes, assignee</code><br>
-                <span style="font-size:11px;color:#888;"><strong>type_flag</strong> = Event/Meeting/Service; <strong>sub_program</strong> = title (optional, creates linked task if assignee set); <strong>assignee</strong> = member ID</span></td>
+                <td><code><strong>title*</strong>, <strong>start_date*</strong>, <strong>type_flag*</strong>, sub_program, recurring_type, notes</code><br>
+                <span style="font-size:11px;color:#888;"><strong>type_flag</strong> = Event/Meeting/Service; <strong>sub_program</strong> = title (optional)</span></td>
+            </tr>
+            <tr>
+                <td>Users</td>
+                <td><code><strong>username*</strong>, <strong>email*</strong>, <strong>password_hash*</strong>, <strong>role*</strong>, display_name, is_approved</code></td>
+            </tr>
+            <tr>
+                <td>App Config</td>
+                <td><code><strong>key*</strong>, <strong>value*</strong></code></td>
+            </tr>
+            <tr>
+                <td>Sub-Program Members</td>
+                <td><code><strong>sub_program_title*</strong>, <strong>member_name*</strong></code></td>
+            </tr>
+            <tr>
+                <td>Task Updates</td>
+                <td><code><strong>sub_program_title*</strong>, <strong>task_title*</strong>, <strong>note*</strong>, created_at</code></td>
+            </tr>
+            <tr>
+                <td>Full Backup Restore</td>
+                <td><code>Upload a ZIP file (exported from <strong>Export Backup</strong>) containing all CSV files</code></td>
             </tr>
         </tbody>
     </table>

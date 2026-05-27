@@ -1,0 +1,30 @@
+{% if active_subs %}
+<div class="table-wrap">
+    <table id="activeTable">
+        <thead><tr>
+            <th onclick="sortActive(0)">Title ↕</th>
+            <th onclick="sortActive(1)">Category ↕</th>
+            <th onclick="sortActive(2)">Due ↕</th>
+            <th onclick="sortActive(3)">In-Charge ↕</th>
+            <th onclick="sortActive(4)">Status ↕</th>
+            <th onclick="sortActive(5)">Priority ↕</th>
+            <th onclick="sortActive(6)">Tasks ↕</th>
+        </tr></thead>
+        <tbody>
+            {% for sp in active_subs %}
+            <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
+                <td><strong>{{ sp.title }}</strong></td>
+                <td>{{ sp.category_name }}</td>
+                <td>{{ sp.due_date or '—' }}</td>
+                <td>{{ sp.in_charge_name or '—' }}</td>
+                <td><span class="badge {{ status_color(sp.derived_status) }}">{{ sp.derived_status }}</span></td>
+                <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
+                <td>{{ sp.task_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p style="color:#999;">No active sub-programs.</p>
+{% endif %}

@@ -256,7 +256,7 @@ users
 pip install -r requirements.txt
 
 # Run
-DATABASE_URL="dbname=chms_dev host=/tmp port=15432 user=erangadesaram" python3 app.py
+DATABASE_URL="dbname=chms_dev" python3 app.py
 
 # Opens at http://127.0.0.1:5000
 # Tables auto-created on first request
@@ -269,15 +269,14 @@ DATABASE_URL="dbname=chms_dev host=/tmp port=15432 user=erangadesaram" python3 a
 ### Environment variables
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | (required) | PostgreSQL connection string |
+| `DATABASE_URL` | `dbname=chms_dev` | PostgreSQL connection string |
 | `CHMS_ADMIN_PASSWORD` | `qazcde@123` | Force-reset admin password on startup |
 | `CHMS_SECRET_KEY` | `chms-secret-key` | Flask session secret key |
 | `PORT` | `5000` | HTTP port |
 
 ### Reset database
 ```bash
-psql -h /tmp -p 15432 -d postgres -c "DROP DATABASE chms_dev"
-createdb chms_dev
+dropdb chms_dev && createdb chms_dev
 ```
 
 ## Deployment
@@ -292,7 +291,7 @@ createdb chms_dev
 ## Testing
 ```bash
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-DATABASE_URL="dbname=chms_test host=/tmp port=15432 user=erangadesaram" python3 -m pytest test_all.py -v
+DATABASE_URL="dbname=chms_test" python3 -m pytest test_all.py -v
 # 114 tests, 0 failures, 0 skipped
 ```
 

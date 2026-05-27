@@ -126,13 +126,13 @@
 ### Testing
 ```bash
 cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
-DATABASE_URL="dbname=chms_test host=/tmp port=15432 user=erangadesaram" python3 -m pytest test_all.py -v
+DATABASE_URL="dbname=chms_test" python3 -m pytest test_all.py -v
 # 114 tests, 0 failures
 ```
 
 ### Run locally
 ```bash
-DATABASE_URL="dbname=chms_dev host=/tmp port=15432 user=erangadesaram" python3 app.py
+DATABASE_URL="dbname=chms_dev" python3 app.py
 # Opens at http://127.0.0.1:5000
 ```
 

@@ -1,0 +1,22 @@
+{% if overdue_subs %}
+<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3>
+<div class="table-wrap" style="margin-bottom:24px;">
+    <table>
+        <thead><tr>
+            <th>Title</th><th>Category</th><th>Due</th><th>In-Charge</th><th>Priority</th><th>Tasks</th>
+        </tr></thead>
+        <tbody>
+            {% for sp in overdue_subs %}
+            <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=sp.id) }}'">
+                <td><strong>{{ sp.title }}</strong></td>
+                <td>{{ sp.category_name }}</td>
+                <td style="color:#be1e28;">{{ sp.due_date }}</td>
+                <td>{{ sp.in_charge_name or '—' }}</td>
+                <td>{% if sp.derived_priority %}<span class="badge {{ priority_color(sp.derived_priority) }}">{{ sp.derived_priority }}</span>{% else %}—{% endif %}</td>
+                <td>{{ sp.task_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

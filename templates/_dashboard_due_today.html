@@ -1,0 +1,19 @@
+{% if due_today %}
+<div class="due-section" style="margin-bottom:20px;">
+    <h3 style="font-size:16px;color:#be1e28;margin-bottom:8px;">Due Today</h3>
+    <div class="table-wrap" style="margin-bottom:12px;">
+        <table>
+            <thead><tr><th>Task</th><th>Sub-Program</th><th>Priority</th></tr></thead>
+            <tbody>
+                {% for t in due_today %}
+                <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
+                    <td><strong>{{ t.title }}</strong></td>
+                    <td>{{ t.sub_title }}</td>
+                    <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}

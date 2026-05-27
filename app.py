@@ -1,6 +1,4 @@
-import os
-import csv
-import json
+import os, csv, json, io, zipfile
 from datetime import datetime, date, timedelta
 from calendar import monthcalendar
 
@@ -368,6 +366,32 @@ def dashboard():
         due_this_week=due_this_week,
         chart_counts=chart_counts,
     )
+
+
+@app.route("/dashboard/data")
+@login_required
+def dashboard_data():
+    counts = get_sub_program_counts()
+    overdue_subs = get_overdue_sub_programs()
+    active_subs = get_active_sub_programs()
+    schedule = get_upcoming_schedule(20)
+    due_today, due_this_week = get_due_reminders()
+
+    return jsonify({
+        "counts": counts,
+        "overdue_subs": overdue_subs,
+        "active_subs": active_subs,
+        "schedule": schedule,
+        "due_today": due_today,
+        "due_this_week": due_this_week,
+        "chart_counts": {
+            "open": counts.get("open", 0),
+            "in_progress": counts.get("in_progress", 0),
+            "completed": counts.get("completed", 0),
+            "on_hold_suspended": counts.get("on_hold_suspended", 0),
+            "overdue": counts.get("overdue", 0),
+        },
+    })
 
 
 # ─── Programs ───────────────────────────────────────────
@@ -1070,15 +1094,18 @@ def import_data():
             flash("Please select a file", "error")
             return render_template("import.html", entity=entity)
 
+        imported = 0
+        errors = 0
+
+        if file.filename.lower().endswith(".zip"):
+            return _import_zip(file)
+
         content = file.read().decode("utf-8-sig").splitlines()
         reader = csv.DictReader(content)
         rows = list(reader)
         if not rows:
             flash("File is empty or has no valid rows", "error")
             return render_template("import.html", entity=entity)
-
-        imported = 0
-        errors = 0
 
         if entity == "members":
             for r in rows:
@@ -1235,6 +1262,95 @@ def import_data():
                 except Exception:
                     errors += 1
 
+        elif entity == "users":
+            for r in rows:
+                try:
+                    username = r.get("username", r.get("Username", "")).strip()
+                    email = r.get("email", r.get("Email", "")).strip().lower()
+                    pw_hash = r.get("password_hash", "").strip()
+                    role = r.get("role", r.get("Role", "viewer")).strip()
+                    display_name = r.get("display_name", r.get("Display Name", "")).strip()
+                    is_approved = int(r.get("is_approved", r.get("Is Approved", "1")) or 1)
+                    if not username or not email or not pw_hash or not role:
+                        errors += 1
+                        continue
+                    conn = get_conn()
+                    conn.execute(
+                        "INSERT INTO users (username, email, password_hash, role, display_name, is_approved)"
+                        " VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (email) DO NOTHING",
+                        (username, email, pw_hash, role, display_name, is_approved),
+                    )
+                    conn.commit()
+                    conn.close()
+                    imported += 1
+                except Exception:
+                    errors += 1
+
+        elif entity == "app_config":
+            for r in rows:
+                try:
+                    key = r.get("key", r.get("Key", "")).strip()
+                    value = r.get("value", r.get("Value", "")).strip()
+                    if not key:
+                        errors += 1
+                        continue
+                    conn = get_conn()
+                    conn.execute(
+                        "INSERT INTO app_config (key, value) VALUES (%s,%s)"
+                        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                        (key, value),
+                    )
+                    conn.commit()
+                    conn.close()
+                    imported += 1
+                except Exception:
+                    errors += 1
+
+        elif entity == "sub_program_members":
+            sp_names = {s["title"].strip().lower(): s["id"] for s in get_all_sub_programs_with_status()}
+            member_names = {m["name"].strip().lower(): m["id"] for m in get_members()}
+            for r in rows:
+                try:
+                    sp_title = r.get("sub_program_title", r.get("Sub Program Title", "")).strip()
+                    member_name = r.get("member_name", r.get("Member Name", "")).strip()
+                    sp_id = sp_names.get(sp_title.lower())
+                    member_id = member_names.get(member_name.lower())
+                    if sp_id and member_id:
+                        add_sub_program_member(sp_id, member_id)
+                        imported += 1
+                    else:
+                        errors += 1
+                except Exception:
+                    errors += 1
+
+        elif entity == "task_updates":
+            sp_names = {s["title"].strip().lower(): s["id"] for s in get_all_sub_programs_with_status()}
+            for r in rows:
+                try:
+                    sp_title = r.get("sub_program_title", r.get("Sub Program Title", "")).strip()
+                    task_title = r.get("task_title", r.get("Task Title", "")).strip()
+                    note = r.get("note", r.get("Note", "")).strip()
+                    if not sp_title or not task_title or not note:
+                        errors += 1
+                        continue
+                    sp_id = sp_names.get(sp_title.lower())
+                    if not sp_id:
+                        errors += 1
+                        continue
+                    tasks, _ = get_tasks(sp_id, page=1, per_page=500)
+                    task_id = None
+                    for t in tasks:
+                        if t["title"].strip().lower() == task_title.lower():
+                            task_id = t["id"]
+                            break
+                    if task_id:
+                        add_task_update(task_id, note)
+                        imported += 1
+                    else:
+                        errors += 1
+                except Exception:
+                    errors += 1
+
         else:
             flash("Unknown entity type", "error")
             return render_template("import.html", entity=entity)
@@ -1248,27 +1364,268 @@ def import_data():
     return render_template("import.html", entity=None)
 
 
+def _import_zip(file):
+    imported = 0
+    errors = 0
+    zip_data = file.read()
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        member_names = [n for n in zf.namelist() if n.endswith(".csv")]
+        order = ["users", "app_config", "members", "program_categories",
+                 "sub_programs", "sub_program_members", "tasks", "task_updates", "events"]
+        for name in order:
+            csv_name = f"{name}.csv"
+            if csv_name not in member_names:
+                continue
+            content = zf.read(csv_name).decode("utf-8-sig").splitlines()
+            reader = csv.DictReader(content)
+            rows = list(reader)
+            if not rows:
+                continue
+            for r in rows:
+                try:
+                    if name == "users":
+                        conn = get_conn()
+                        conn.execute(
+                            "INSERT INTO users (username, email, password_hash, role, display_name, is_approved)"
+                            " VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (email) DO NOTHING",
+                            (r.get("username","").strip(), r.get("email","").strip().lower(),
+                             r.get("password_hash","").strip(),
+                             r.get("role","viewer").strip(),
+                             r.get("display_name","").strip(),
+                             int(r.get("is_approved","1") or 1)),
+                        )
+                        conn.commit()
+                        conn.close()
+                        imported += 1
+                    elif name == "app_config":
+                        conn = get_conn()
+                        conn.execute(
+                            "INSERT INTO app_config (key, value) VALUES (%s,%s)"
+                            " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                            (r.get("key","").strip(), r.get("value","").strip()),
+                        )
+                        conn.commit()
+                        conn.close()
+                        imported += 1
+                    elif name == "members":
+                        add_member(
+                            name=r.get("name", r.get("Name", "")).strip(),
+                            designation=r.get("designation", r.get("Designation", "")).strip(),
+                            phone=r.get("phone", r.get("Phone", "")).strip(),
+                            email=r.get("email", r.get("Email", "")).strip(),
+                        )
+                        imported += 1
+                    elif name == "program_categories":
+                        add_program_category(
+                            name=r.get("name", r.get("Name", "")).strip(),
+                            description=r.get("description", r.get("Description", "")).strip(),
+                            sort_order=int(r.get("sort_order", r.get("Sort Order", 0)) or 0),
+                        )
+                        imported += 1
+                    elif name == "sub_programs":
+                        _import_zip_sub_program(r)
+                        imported += 1
+                    elif name == "sub_program_members":
+                        sp_names = {s["title"].strip().lower(): s["id"]
+                                    for s in get_all_sub_programs_with_status()}
+                        member_names = {m["name"].strip().lower(): m["id"] for m in get_members()}
+                        sp_id = sp_names.get(r.get("sub_program_title","").strip().lower())
+                        member_id = member_names.get(r.get("member_name","").strip().lower())
+                        if sp_id and member_id:
+                            add_sub_program_member(sp_id, member_id)
+                            imported += 1
+                        else:
+                            errors += 1
+                    elif name == "tasks":
+                        sp_lookup = {s["title"].strip().lower(): s["id"]
+                                     for s in get_all_sub_programs_with_status()}
+                        sp_id = sp_lookup.get(r.get("sub_program","").strip().lower())
+                        if not sp_id:
+                            errors += 1
+                            continue
+                        add_task(
+                            sub_program_id=sp_id,
+                            title=r.get("title", r.get("Title", "")).strip(),
+                            due_date=r.get("due_date", r.get("Due Date", "")) or None,
+                            assigned_to=int(r.get("assigned_to","0") or 0) or None,
+                            priority=r.get("priority", "medium").strip(),
+                        )
+                        imported += 1
+                    elif name == "task_updates":
+                        sp_names = {s["title"].strip().lower(): s["id"]
+                                    for s in get_all_sub_programs_with_status()}
+                        sp_id = sp_names.get(r.get("sub_program_title","").strip().lower())
+                        if not sp_id:
+                            errors += 1
+                            continue
+                        tasks, _ = get_tasks(sp_id, page=1, per_page=500)
+                        tid = None
+                        for t in tasks:
+                            if t["title"].strip().lower() == r.get("task_title","").strip().lower():
+                                tid = t["id"]
+                                break
+                        if tid:
+                            add_task_update(tid, r.get("note","").strip())
+                            imported += 1
+                        else:
+                            errors += 1
+                    elif name == "events":
+                        sp_lookup = {s["title"].strip().lower(): s["id"]
+                                     for s in get_all_sub_programs_with_status()}
+                        add_event(
+                            title=r.get("title", r.get("Title", "")).strip(),
+                            sub_program_id=sp_lookup.get(r.get("sub_program","").strip().lower()),
+                            recurring_type=r.get("recurring_type", "none").strip(),
+                            type_flag=r.get("type_flag", "Event").strip(),
+                            start_date=r.get("start_date", r.get("Date", "")).strip(),
+                            notes=r.get("notes", r.get("Notes", "")).strip(),
+                        )
+                        imported += 1
+                except Exception:
+                    errors += 1
+
+    msg = f"Restored {imported} records from backup"
+    if errors:
+        msg += f" ({errors} errors)"
+    flash(msg, "success")
+    return redirect(url_for("dashboard"))
+
+
+def _import_zip_sub_program(r):
+    cat_lookup = {c["name"].strip().lower(): c["id"] for c in get_program_categories()}
+    member_name_lookup = {m["name"].strip().lower(): m["id"] for m in get_members()}
+    cat_name = r.get("program_category", r.get("Category", "")).strip()
+    cat_id = cat_lookup.get(cat_name.lower())
+    if cat_id is None:
+        cat_id = add_program_category(cat_name, "", 99)
+    in_charge_name = r.get("in_charge", "").strip()
+    in_charge_id = member_name_lookup.get(in_charge_name.lower()) if in_charge_name else None
+    sp_id = add_sub_program(
+        category_id=cat_id,
+        title=r.get("title", r.get("Title", "")).strip(),
+        description=r.get("description", r.get("Description", "")).strip(),
+        due_date=r.get("due_date", r.get("Due Date", "")) or None,
+        in_charge_id=in_charge_id,
+        recurring_type=r.get("recurring_type", "none").strip(),
+        add_to_calendar=r.get("add_to_calendar", "0").strip() in ("1", "yes", "true"),
+        type_flag=r.get("type_flag", "Program").strip(),
+        notes=r.get("notes", r.get("Notes", "")).strip(),
+    )
+    for i in range(1, 11):
+        t_title = r.get(f"task_{i}_title", r.get(f"Task {i} Title", "")).strip()
+        if not t_title:
+            continue
+        add_task(
+            sub_program_id=sp_id,
+            title=t_title,
+            due_date=r.get(f"task_{i}_due_date", r.get(f"Task {i} Due Date", "")) or None,
+            assigned_to=int(r.get(f"task_{i}_assigned_to", "0") or 0) or None,
+            priority=r.get(f"task_{i}_priority", "medium").strip(),
+        )
+
+
 # ─── CSV Export ──────────────────────────────────────────
+
+@app.route("/export/members")
+@login_required
+def export_members_csv():
+    conn = get_conn()
+    rows = conn.execute("SELECT name, designation, phone, email FROM members ORDER BY name").fetchall()
+    conn.close()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(["name", "designation", "phone", "email"])
+    for r in rows:
+        w.writerow([r["name"], r["designation"], r["phone"], r["email"]])
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=members.csv"}
+
+
+@app.route("/export/programs")
+@login_required
+def export_programs_csv():
+    conn = get_conn()
+    rows = conn.execute("SELECT name, description, sort_order FROM program_categories ORDER BY sort_order").fetchall()
+    conn.close()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(["name", "description", "sort_order"])
+    for r in rows:
+        w.writerow([r["name"], r["description"], r["sort_order"]])
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=program_categories.csv"}
+
+
+@app.route("/export/sub_programs")
+@login_required
+def export_sub_programs_csv():
+    conn = get_conn()
+    subs = conn.execute("""
+        SELECT sp.*, pc.name AS program_category
+        FROM sub_programs sp
+        LEFT JOIN program_categories pc ON sp.program_category_id = pc.id
+        WHERE sp.parent_id IS NULL
+        ORDER BY pc.name, sp.title
+    """).fetchall()
+    si = io.StringIO()
+    w = csv.writer(si)
+    cols = ["title", "program_category", "description", "due_date", "in_charge",
+            "recurring_type", "add_to_calendar", "type_flag", "notes", "team_members",
+            "task_1_title", "task_1_due_date", "task_1_assigned_to", "task_1_priority",
+            "task_2_title", "task_2_due_date", "task_2_assigned_to", "task_2_priority",
+            "task_3_title", "task_3_due_date", "task_3_assigned_to", "task_3_priority",
+            "task_4_title", "task_4_due_date", "task_4_assigned_to", "task_4_priority",
+            "task_5_title", "task_5_due_date", "task_5_assigned_to", "task_5_priority",
+            "task_6_title", "task_6_due_date", "task_6_assigned_to", "task_6_priority",
+            "task_7_title", "task_7_due_date", "task_7_assigned_to", "task_7_priority",
+            "task_8_title", "task_8_due_date", "task_8_assigned_to", "task_8_priority",
+            "task_9_title", "task_9_due_date", "task_9_assigned_to", "task_9_priority",
+            "task_10_title", "task_10_due_date", "task_10_assigned_to", "task_10_priority"]
+    w.writerow(cols)
+    member_name_lookup = {m["id"]: m["name"] for m in get_members()}
+    for sp in subs:
+        sp = dict(sp)
+        in_charge = member_name_lookup.get(sp["in_charge_id"], "")
+        members = get_sub_program_members(sp["id"])
+        team_ids = ",".join(str(m["member_id"]) for m in members)
+        task_list, _ = get_tasks(sp["id"], per_page=500)
+        row = [sp["title"], sp["program_category"] or "", sp["description"], sp["due_date"],
+               in_charge, sp["recurring_type"], "1" if sp["add_to_calendar"] else "0",
+               sp["type_flag"], sp["notes"], team_ids]
+        for i in range(1, 11):
+            t = task_list[i - 1] if i <= len(task_list) else None
+            if t:
+                assignee_name = member_name_lookup.get(t["assigned_to"], "")
+                row.extend([t["title"], t["due_date"], assignee_name, t["priority"]])
+            else:
+                row.extend(["", "", "", ""])
+        w.writerow(row)
+    conn.close()
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=sub_programs.csv"}
+
 
 @app.route("/export/tasks")
 @login_required
 def export_tasks_csv():
-    import io
     conn = get_conn()
     rows = conn.execute("""
-        SELECT t.id, t.title, t.status, t.priority, t.due_date,
+        SELECT t.title, t.status, t.priority, t.due_date,
                m.name AS assigned_to, sp.title AS sub_program
         FROM tasks t
         LEFT JOIN members m ON t.assigned_to = m.id
         LEFT JOIN sub_programs sp ON t.sub_program_id = sp.id
-        ORDER BY t.id
+        ORDER BY sp.title, t.id
     """).fetchall()
     conn.close()
     si = io.StringIO()
     w = csv.writer(si)
-    w.writerow(["ID", "Title", "Status", "Priority", "Due Date", "Assigned To", "Sub-Program"])
+    w.writerow(["sub_program", "title", "due_date", "assigned_to", "priority", "status"])
     for r in rows:
-        w.writerow([r["id"], r["title"], r["status"], r["priority"], r["due_date"], r["assigned_to"], r["sub_program"]])
+        w.writerow([r["sub_program"], r["title"], r["due_date"], r["assigned_to"], r["priority"], r["status"]])
     out = si.getvalue()
     si.close()
     return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=tasks.csv"}
@@ -1277,11 +1634,10 @@ def export_tasks_csv():
 @app.route("/export/events")
 @login_required
 def export_events_csv():
-    import io
     conn = get_conn()
     rows = conn.execute("""
-        SELECT e.id, e.title, e.type_flag, e.start_date, e.recurring_type,
-               sp.title AS sub_program
+        SELECT e.title, e.type_flag, e.start_date, e.recurring_type,
+               e.notes, sp.title AS sub_program
         FROM events e
         LEFT JOIN sub_programs sp ON e.sub_program_id = sp.id
         ORDER BY e.start_date
@@ -1289,29 +1645,200 @@ def export_events_csv():
     conn.close()
     si = io.StringIO()
     w = csv.writer(si)
-    w.writerow(["ID", "Title", "Type", "Date", "Recurring", "Sub-Program"])
+    w.writerow(["title", "start_date", "type_flag", "sub_program", "recurring_type", "notes"])
     for r in rows:
-        w.writerow([r["id"], r["title"], r["type_flag"], r["start_date"], r["recurring_type"], r["sub_program"]])
+        w.writerow([r["title"], r["start_date"], r["type_flag"], r["sub_program"], r["recurring_type"], r["notes"]])
     out = si.getvalue()
     si.close()
     return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=events.csv"}
 
 
-@app.route("/export/members")
-@login_required
-def export_members_csv():
-    import io
+@app.route("/export/users")
+@require_admin
+def export_users_csv():
     conn = get_conn()
-    rows = conn.execute("SELECT id, name, designation, phone, email FROM members ORDER BY name").fetchall()
+    rows = conn.execute("SELECT username, email, password_hash, role, display_name, is_approved FROM users ORDER BY id").fetchall()
     conn.close()
     si = io.StringIO()
     w = csv.writer(si)
-    w.writerow(["ID", "Name", "Designation", "Phone", "Email"])
+    w.writerow(["username", "email", "password_hash", "role", "display_name", "is_approved"])
     for r in rows:
-        w.writerow([r["id"], r["name"], r["designation"], r["phone"], r["email"]])
+        w.writerow([r["username"], r["email"], r["password_hash"], r["role"], r["display_name"], r["is_approved"]])
     out = si.getvalue()
     si.close()
-    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=members.csv"}
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=users.csv"}
+
+
+@app.route("/export/app_config")
+@require_admin
+def export_app_config_csv():
+    conn = get_conn()
+    rows = conn.execute("SELECT key, value FROM app_config ORDER BY key").fetchall()
+    conn.close()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(["key", "value"])
+    for r in rows:
+        w.writerow([r["key"], r["value"]])
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=app_config.csv"}
+
+
+@app.route("/export/sub_program_members")
+@login_required
+def export_sp_members_csv():
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT sp.title AS sub_program_title, m.name AS member_name
+        FROM sub_program_members spm
+        JOIN sub_programs sp ON spm.sub_program_id = sp.id
+        JOIN members m ON spm.member_id = m.id
+        ORDER BY sp.title, m.name
+    """).fetchall()
+    conn.close()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(["sub_program_title", "member_name"])
+    for r in rows:
+        w.writerow([r["sub_program_title"], r["member_name"]])
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=sub_program_members.csv"}
+
+
+@app.route("/export/task_updates")
+@login_required
+def export_task_updates_csv():
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT sp.title AS sub_program_title, t.title AS task_title,
+               tu.note, tu.created_at
+        FROM task_updates tu
+        JOIN tasks t ON tu.task_id = t.id
+        JOIN sub_programs sp ON t.sub_program_id = sp.id
+        ORDER BY tu.id
+    """).fetchall()
+    conn.close()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(["sub_program_title", "task_title", "note", "created_at"])
+    for r in rows:
+        w.writerow([r["sub_program_title"], r["task_title"], r["note"], r["created_at"]])
+    out = si.getvalue()
+    si.close()
+    return out, 200, {"Content-Type": "text/csv", "Content-Disposition": "attachment; filename=task_updates.csv"}
+
+
+@app.route("/export/backup")
+@require_admin
+def export_backup():
+    conn = get_conn()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        _backup_csv(zf, conn, "users", ["username", "email", "password_hash", "role", "display_name", "is_approved"],
+                    "SELECT username, email, password_hash, role, display_name, is_approved FROM users ORDER BY id")
+        _backup_csv(zf, conn, "app_config", ["key", "value"],
+                    "SELECT key, value FROM app_config ORDER BY key")
+        _backup_csv(zf, conn, "members", ["name", "designation", "phone", "email"],
+                    "SELECT name, designation, phone, email FROM members ORDER BY name")
+        _backup_csv(zf, conn, "program_categories", ["name", "description", "sort_order"],
+                    "SELECT name, description, sort_order FROM program_categories ORDER BY sort_order")
+        _backup_sub_programs_zip(zf, conn)
+        _backup_csv(zf, conn, "sub_program_members", ["sub_program_title", "member_name"], """
+            SELECT sp.title AS sub_program_title, m.name AS member_name
+            FROM sub_program_members spm
+            JOIN sub_programs sp ON spm.sub_program_id = sp.id
+            JOIN members m ON spm.member_id = m.id
+            ORDER BY sp.title, m.name
+        """)
+        _backup_csv(zf, conn, "tasks", ["sub_program", "title", "due_date", "assigned_to", "priority", "status"], """
+            SELECT sp.title AS sub_program, t.title, t.due_date,
+                   m.name AS assigned_to, t.priority, t.status
+            FROM tasks t
+            LEFT JOIN members m ON t.assigned_to = m.id
+            LEFT JOIN sub_programs sp ON t.sub_program_id = sp.id
+            ORDER BY sp.title, t.id
+        """)
+        _backup_csv(zf, conn, "task_updates", ["sub_program_title", "task_title", "note", "created_at"], """
+            SELECT sp.title AS sub_program_title, t.title AS task_title,
+                   tu.note, tu.created_at
+            FROM task_updates tu
+            JOIN tasks t ON tu.task_id = t.id
+            JOIN sub_programs sp ON t.sub_program_id = sp.id
+            ORDER BY tu.id
+        """)
+        _backup_csv(zf, conn, "events", ["title", "start_date", "type_flag", "sub_program", "recurring_type", "notes"], """
+            SELECT e.title, e.start_date, e.type_flag,
+                   sp.title AS sub_program, e.recurring_type, e.notes
+            FROM events e
+            LEFT JOIN sub_programs sp ON e.sub_program_id = sp.id
+            ORDER BY e.start_date
+        """)
+    conn.close()
+    buf.seek(0)
+    return buf.read(), 200, {
+        "Content-Type": "application/zip",
+        "Content-Disposition": f"attachment; filename=chms-backup-{date.today().isoformat()}.zip",
+    }
+
+
+def _backup_csv(zf, conn, name, columns, sql):
+    rows = conn.execute(sql).fetchall()
+    si = io.StringIO()
+    w = csv.writer(si)
+    w.writerow(columns)
+    for r in rows:
+        w.writerow([r[c] for c in columns])
+    zf.writestr(f"{name}.csv", si.getvalue().encode("utf-8"))
+    si.close()
+
+
+def _backup_sub_programs_zip(zf, conn):
+    subs = conn.execute("""
+        SELECT sp.*, pc.name AS program_category
+        FROM sub_programs sp
+        LEFT JOIN program_categories pc ON sp.program_category_id = pc.id
+        WHERE sp.parent_id IS NULL
+        ORDER BY pc.name, sp.title
+    """).fetchall()
+    member_names = {m["id"]: m["name"] for m in get_members()}
+    si = io.StringIO()
+    w = csv.writer(si)
+    cols = ["title", "program_category", "description", "due_date", "in_charge",
+            "recurring_type", "add_to_calendar", "type_flag", "notes", "team_members",
+            "task_1_title", "task_1_due_date", "task_1_assigned_to", "task_1_priority",
+            "task_2_title", "task_2_due_date", "task_2_assigned_to", "task_2_priority",
+            "task_3_title", "task_3_due_date", "task_3_assigned_to", "task_3_priority",
+            "task_4_title", "task_4_due_date", "task_4_assigned_to", "task_4_priority",
+            "task_5_title", "task_5_due_date", "task_5_assigned_to", "task_5_priority",
+            "task_6_title", "task_6_due_date", "task_6_assigned_to", "task_6_priority",
+            "task_7_title", "task_7_due_date", "task_7_assigned_to", "task_7_priority",
+            "task_8_title", "task_8_due_date", "task_8_assigned_to", "task_8_priority",
+            "task_9_title", "task_9_due_date", "task_9_assigned_to", "task_9_priority",
+            "task_10_title", "task_10_due_date", "task_10_assigned_to", "task_10_priority"]
+    w.writerow(cols)
+    for sp in subs:
+        sp = dict(sp)
+        in_charge = member_names.get(sp["in_charge_id"], "")
+        sp_members = conn.execute(
+            "SELECT member_id FROM sub_program_members WHERE sub_program_id=%s", (sp["id"],)
+        ).fetchall()
+        team_ids = ",".join(str(m["member_id"]) for m in sp_members)
+        task_list, _ = get_tasks(sp["id"], per_page=500)
+        row = [sp["title"], sp["program_category"] or "", sp["description"], sp["due_date"],
+               in_charge, sp["recurring_type"], "1" if sp["add_to_calendar"] else "0",
+               sp["type_flag"], sp["notes"], team_ids]
+        for i in range(1, 11):
+            t = task_list[i - 1] if i <= len(task_list) else None
+            if t:
+                assignee = member_names.get(t["assigned_to"], "")
+                row.extend([t["title"], t["due_date"], assignee, t["priority"]])
+            else:
+                row.extend(["", "", "", ""])
+        w.writerow(row)
+    si.close()
+    zf.writestr("sub_programs.csv", si.getvalue().encode("utf-8"))
 
 
 # ─── Bootstrap ───────────────────────────────────────────

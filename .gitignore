@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
+.~lock.*
+*.pyc
 chms.db
 test_chms.db
 .~lock.*
