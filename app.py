@@ -6,6 +6,14 @@ from flask import (
     Flask, render_template, request, redirect,
     url_for, jsonify, flash, session
 )
+from flask.json.provider import DefaultJSONProvider
+
+
+class _JSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        return super().default(obj)
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -32,8 +40,9 @@ from models import (
     TASK_STATUSES, TASK_PRIORITIES, RECURRING_TYPES, TYPE_FLAGS,
     get_conn, init_db,
 )
-
 app = Flask(__name__)
+app.json = _JSONProvider(app)
+
 app.secret_key = os.environ.get("CHMS_SECRET_KEY", "chms-secret-key")
 app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v.dev")
 
