@@ -18,7 +18,7 @@ Replace the existing Excel-based planning committee tracker (`Planning committe.
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Backend | Flask 3.x (Python) | Lightweight, no ORM needed |
-| Database | PostgreSQL 14+ via Neon | psycopg2-binary, DATABASE_URL env var |
+| Database | PostgreSQL 14+ via Neon (prod) / local (dev) | psycopg2-binary, DATABASE_URL env var |
 | Templates | Jinja2 | Ships with Flask |
 | Styling | Plain CSS | No frameworks; responsive, print styles |
 | Auth | Flask sessions + werkzeug | Password hashing, role-based access |
@@ -31,28 +31,36 @@ Replace the existing Excel-based planning committee tracker (`Planning committe.
 3. **Recurrence generation** — daily check via `before_request`, window `[tomorrow, tomorrow+7]`, idempotent via `(parent_id, generation)` uniqueness.
 4. **No external notifications** — in-app dashboard alerts only (due reminders, overdue warnings).
 5. **Color-coded badges** — Red/Green/Yellow/Blue for status/priority (novice-friendly).
-6. **Version number** — `v1.1.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
+6. **Version number** — `v1.2.0` in footer, set via `app.config["APP_VERSION"]`, exposed as template global `app_version()`.
 7. **PostgreSQL via psycopg2** — `_Connection` wrapper class provides `.execute()` returning `RealDictCursor`; `DATABASE_URL` env var; no SQLite fallback.
 8. **Render.com + Docker** — gunicorn deployment with Neon PostgreSQL (Singapore region).
+9. **Dashboard auto-update** — `/dashboard/data` JSON endpoint polled every 30s via `setInterval`; DOM patched in-place (no meta refresh, no flash, no scroll reset).
 
 ## Architecture
 
 ```
 chms/
-├── app.py                  # Flask application (30+ routes, ~1271 lines)
-├── models.py               # PostgreSQL schema + all query functions (~1197 lines)
+├── app.py                  # Flask application (30+ routes, ~1870 lines)
+├── models.py               # PostgreSQL schema + all query functions (~1308 lines)
 ├── test_all.py             # 114 tests for PostgreSQL, all pass
+├── flush_and_seed.py       # Truncate all 9 tables + seed from sub-programs.xlsx
+├── sub-programs.xlsx       # Source spreadsheet for seeding categories/sub-programs/tasks
 ├── Dockerfile              # python:3.12-slim + gunicorn ($PORT)
-├── requirements.txt        # flask, gunicorn, psycopg2-binary
+├── requirements.txt        # flask, gunicorn, psycopg2-binary, openpyxl
 ├── context.md              # This file
 ├── todo.md                 # Task tracker
 ├── .dockerignore
 ├── static/
 │   └── style.css           # ~520 lines (responsive, badges, print, auth forms)
-├── templates/              # 18 Jinja2 templates
+├── templates/              # 23 Jinja2 templates
 │   ├── base.html           # Auth-aware nav, flash messages, delete modal
 │   ├── 404.html
-│   ├── dashboard.html      # Summary cards, due reminders, chart, schedule modal
+│   ├── dashboard.html      # Summary cards, due reminders, chart, schedule, export sidebar, JS auto-refresh
+│   ├── _dashboard_due_today.html     # Partial: due today table
+│   ├── _dashboard_due_week.html      # Partial: due this week table
+│   ├── _dashboard_overdue.html       # Partial: overdue subs table
+│   ├── _dashboard_active.html        # Partial: active subs table
+│   ├── _dashboard_schedule.html      # Partial: upcoming schedule
 │   ├── login.html          # Email + password login
 │   ├── register.html       # Self-registration
 │   ├── password.html       # Change own password
@@ -63,12 +71,12 @@ chms/
 │   ├── category.html       # Sub-program cards per category
 │   ├── sub_program.html    # Task list, notes, inline edit, delete modal
 │   ├── sub_program_form.html # Add/edit sub-program
-│   ├── category_form.html  # Add/edit program category
+│   ├── category_form.html  # Add/edit program category + Delete button
 │   ├── calendar.html       # Month grid + side panel
 │   ├── event_form.html     # Add/edit event
 │   ├── members.html        # Member directory
 │   ├── member_form.html    # Add/edit member
-│       ├── import.html         # CSV import form
+│   ├── import.html         # CSV/ZIP import (all 9 entity types)
 ```
 
 ## Database Schema (9 tables)
@@ -160,7 +168,8 @@ users
 ### Dashboard
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/` | Summary cards, due reminders, chart, upcoming schedule |
+| GET | `/` | Summary cards, due reminders, chart, upcoming schedule, export sidebar |
+| GET | `/dashboard/data` | JSON endpoint for 30s auto-refresh polling |
 
 ### Programs
 | Method | Route | Description |
@@ -175,7 +184,7 @@ users
 | POST | `/programs/sub/<sub_id>/tasks/add` | Add task |
 | GET/POST | `/programs/category/add` | Add category |
 | POST | `/programs/category/<cat_id>/edit` | Edit category |
-| POST | `/programs/category/<cat_id>/delete` | Delete category |
+| POST | `/programs/category/<cat_id>/delete` | Delete category (blocked if sub-programs exist) |
 
 ### Tasks
 | Method | Route | Description |
@@ -205,10 +214,17 @@ users
 ### Import / Export
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET/POST | `/import` | CSV import (members/tasks/events) |
+| GET/POST | `/import` | CSV/ZIP import (all 9 entity types) |
+| GET | `/export/backup` | Full ZIP backup (all 9 tables, admin only) |
+| GET | `/export/members` | CSV export |
+| GET | `/export/programs` | CSV export |
+| GET | `/export/sub_programs` | CSV export (parent-level only) |
 | GET | `/export/tasks` | CSV export |
 | GET | `/export/events` | CSV export |
-| GET | `/export/members` | CSV export |
+| GET | `/export/users` | CSV export (admin only) |
+| GET | `/export/app_config` | CSV export (admin only) |
+| GET | `/export/sub_program_members` | CSV export |
+| GET | `/export/task_updates` | CSV export |
 
 ## Auth Decorators
 
@@ -234,12 +250,14 @@ users
 - Flash messages with categories: `"success"` (green), `"error"` (red)
 - `@login_required` / `@require_write` / `@require_admin` decorators on all routes
 - Context processor injects `current_user`, `categories`, `app_version`, `now`
+- Custom `_JSONProvider` serializes `date`/`datetime` objects automatically for all jsonify responses
 
 ### Templates (Jinja2)
 - All extend `base.html`
 - `base.html`: auth-aware nav (hidden when not logged in), flash messages, delete modal
 - CSS classes: `.btn`, `.btn-primary/outline/red`, `.badge-open/progress/done/hold/suspended/low/med/high/critical`
 - Form pattern: `.form-card` > `.form-group` > `label + input/select`, `.form-row`, `.form-actions`
+- Dashboard partials (`_dashboard_*.html`) used for initial server render, replaced by JS on each poll
 
 ## Known Limitations & Technical Debt
 
@@ -249,14 +267,23 @@ users
 4. **No file attachments** — Cannot attach photos/PDFs to tasks or events.
 5. **No audit log** — Changes not tracked per user.
 
-## Setup & Run
+## Local Development
 
+### Local PostgreSQL
+- PostgreSQL 14 installed locally, running on port 5432
+- Unix socket at `/var/run/postgresql/.s.PGSQL.5432`
+- OS user: `erangadesaram` (peer auth via Unix socket)
+- Databases: `chms_dev` (development), `chms_test` (testing)
+
+### Run
 ```bash
-# Requirements
-pip install -r requirements.txt
+cd /home/erangadesaram/Documents/Eranga/Docs/CHMS/chms
 
-# Run
+# Run the app
 DATABASE_URL="dbname=chms_dev" python3 app.py
+
+# Flush and seed from xlsx
+DATABASE_URL="dbname=chms_dev" python3 flush_and_seed.py
 
 # Opens at http://127.0.0.1:5000
 # Tables auto-created on first request
@@ -273,6 +300,7 @@ DATABASE_URL="dbname=chms_dev" python3 app.py
 | `CHMS_ADMIN_PASSWORD` | `qazcde@123` | Force-reset admin password on startup |
 | `CHMS_SECRET_KEY` | `chms-secret-key` | Flask session secret key |
 | `PORT` | `5000` | HTTP port |
+| `APP_VERSION` | `v1.2.0` | Version displayed in footer |
 
 ### Reset database
 ```bash
@@ -283,10 +311,18 @@ dropdb chms_dev && createdb chms_dev
 
 ### Render.com (Docker)
 
-1. Connect repo at [dashboard.render.com](https://dashboard.render.com) → New Web Service
+1. Connected repo at [dashboard.render.com](https://dashboard.render.com) → Web Service
 2. Runtime: **Docker** (uses `Dockerfile`, binds to `$PORT`)
-3. Set env vars: `DATABASE_URL`, `CHMS_SECRET_KEY`, `CHMS_ADMIN_PASSWORD`, `APP_VERSION`
-4. Auto-deploys on every push to `main` (native Render integration, no GitHub Actions)
+3. Env vars: `DATABASE_URL` (Neon connection string), `CHMS_SECRET_KEY`, `CHMS_ADMIN_PASSWORD`, `APP_VERSION`
+4. Neon DB (prod): `postgresql://neondb_owner:npg_MiSzAFb5Cgw6@ep-autumn-bread-aoud5wru-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`
+5. Auto-deploys on every push to `main` (native Render integration, no GitHub Actions)
+
+### Live DB flush (admin only)
+```sql
+-- Preserves users table; clears everything else
+TRUNCATE task_updates, tasks, sub_program_members, sub_programs, events,
+        program_categories, members, app_config RESTART IDENTITY CASCADE;
+```
 
 ## Testing
 ```bash
