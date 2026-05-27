@@ -27,11 +27,6 @@
         <div id="overdue-container">{% include "_dashboard_overdue.html" %}</div>
 
         <h3 style="font-size:16px;color:#1a3a5c;margin-bottom:12px;">All Active Sub-Programs</h3>
-        {% if active_subs %}
-        <div style="margin-bottom:12px;">
-            <input type="text" id="activeSearch" class="search-input" placeholder="Search active sub-programs..." oninput="filterActiveTable()">
-        </div>
-        {% endif %}
         <div id="active-container">{% include "_dashboard_active.html" %}</div>
     </div>
 
@@ -70,114 +65,251 @@
 <div id="event-modal-placeholder"></div>
 
 <script>
-var statusBadge = { 'open':'badge-open', 'in_progress':'badge-progress', 'completed':'badge-done', 'on_hold':'badge-hold', 'suspended':'badge-suspended' };
-var priorityBadge = { 'low':'badge-low', 'medium':'badge-med', 'high':'badge-high', 'critical':'badge-critical' };
-var statusColors = { 'open':'#856404', 'in_progress':'#0a5a96', 'completed':'#28a745', 'on_hold_suspended':'#721c24', 'overdue':'#be1e28' };
+var priorityBadge = { low:'badge-low', medium:'badge-med', high:'badge-high', critical:'badge-critical' };
+var statusBadge = { open:'badge-open', in_progress:'badge-progress', completed:'badge-done', on_hold:'badge-hold', suspended:'badge-suspended' };
 
-function ec(text) {
-    var d = document.createElement('div');
-    d.textContent = text;
-    return d.innerHTML;
+function ec(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+function esc(v) { return v == null ? '—' : ec(v); }
+
+var tblState = {
+    dueWeek:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'dueWeek' },
+    overdue:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'overdue' },
+    active:   { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'active'  }
+};
+
+function _filter(s) {
+    if (!s.fl) return s.data.slice();
+    var f = s.fl.toLowerCase();
+    return s.data.filter(function(r) {
+        return Object.values(r).some(function(v) {
+            return String(v == null ? '' : v).toLowerCase().includes(f);
+        });
+    });
+}
+
+function _sort(rows, sc, sd) {
+    return rows.slice().sort(function(a, b) {
+        var va = a[a.keys ? a.keys[sc] : ''] || '';
+        var vb = b[a.keys ? b.keys[sc] : ''] || '';
+        va = String(va).trim(); vb = String(vb).trim();
+        if (!isNaN(parseFloat(va)) && !isNaN(parseFloat(vb)))
+            return (parseFloat(va) - parseFloat(vb)) * (sd === 'asc' ? 1 : -1);
+        return va.localeCompare(vb) * (sd === 'asc' ? 1 : -1);
+    });
+}
+
+function _renderDueWeek() {
+    var s = tblState.dueWeek;
+    var container = document.getElementById('due-week-container');
+    if (!container) return;
+    var all = _filter(s);
+    if (!all.length) { container.innerHTML = ''; return; }
+    var sorted = _sort(all, s.sc, s.sd);
+    var totalPages = Math.ceil(sorted.length / s.ps) || 1;
+    if (s.p >= totalPages) s.p = totalPages - 1;
+    var start = s.p * s.ps;
+    var page = sorted.slice(start, start + s.ps);
+    var color = '#856404';
+    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:' + color + ';margin-bottom:8px;">Due This Week</h3>';
+    h += '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search due this week..." value="' + esc(s.fl) + '"></div>';
+    h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
+    var headers = ['Title','Sub-Program','Due','Priority'];
+    for (var i = 0; i < headers.length; i++) {
+        var arrow = i === s.sc ? (s.sd === 'asc' ? ' \u2191' : ' \u2193') : ' \u2195';
+        h += '<th class="sortable" data-sort-col="' + i + '" data-table="dueWeek">' + headers[i] + arrow + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < page.length; i++) {
+        var t = page[i];
+        var pclass = priorityBadge[t.priority] || 'badge-med';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + t.sub_id + '\'">';
+        h += '<td><strong>' + ec(t.title) + '</strong></td><td>' + esc(t.sub_title) + '</td>';
+        h += '<td>' + esc(t.due_date) + '</td>';
+        h += '<td><span class="badge ' + pclass + '">' + ec(t.priority || 'medium') + '</span></td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += _paginatorHtml('dueWeek', totalPages);
+    h += '</div>';
+    container.innerHTML = h;
+}
+
+function _renderOverdue() {
+    var s = tblState.overdue;
+    var container = document.getElementById('overdue-container');
+    if (!container) return;
+    var all = _filter(s);
+    if (!all.length) { container.innerHTML = ''; return; }
+    var sorted = _sort(all, s.sc, s.sd);
+    var totalPages = Math.ceil(sorted.length / s.ps) || 1;
+    if (s.p >= totalPages) s.p = totalPages - 1;
+    var start = s.p * s.ps;
+    var page = sorted.slice(start, start + s.ps);
+    var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3>';
+    h += '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="overdue" placeholder="Search overdue sub-programs..." value="' + esc(s.fl) + '"></div>';
+    h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
+    var headers = ['Title','Category','Due','In-Charge','Priority','Tasks'];
+    for (var i = 0; i < headers.length; i++) {
+        var arrow = i === s.sc ? (s.sd === 'asc' ? ' \u2191' : ' \u2193') : ' \u2195';
+        h += '<th class="sortable" data-sort-col="' + i + '" data-table="overdue">' + headers[i] + arrow + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < page.length; i++) {
+        var sp = page[i];
+        var pclass = priorityBadge[sp.derived_priority] || '';
+        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
+        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + esc(sp.category_name) + '</td>';
+        h += '<td style="color:#be1e28;">' + esc(sp.due_date) + '</td><td>' + esc(sp.in_charge_name) + '</td>';
+        h += '<td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += _paginatorHtml('overdue', totalPages);
+    container.innerHTML = h;
+}
+
+function _renderActive() {
+    var s = tblState.active;
+    var container = document.getElementById('active-container');
+    if (!container) return;
+    var all = _filter(s);
+    if (!all.length) { container.innerHTML = '<p style="color:#999;">No active sub-programs.</p>'; return; }
+    var sorted = _sort(all, s.sc, s.sd);
+    var totalPages = Math.ceil(sorted.length / s.ps) || 1;
+    if (s.p >= totalPages) s.p = totalPages - 1;
+    var start = s.p * s.ps;
+    var page = sorted.slice(start, start + s.ps);
+    var h = '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="active" placeholder="Search active sub-programs..." value="' + esc(s.fl) + '"></div>';
+    h += '<div class="table-wrap"><table id="activeTable"><thead><tr>';
+    var headers = ['Title','Category','Due','In-Charge','Status','Priority','Tasks'];
+    for (var i = 0; i < headers.length; i++) {
+        var arrow = i === s.sc ? (s.sd === 'asc' ? ' \u2191' : ' \u2193') : ' \u2195';
+        h += '<th class="sortable" data-sort-col="' + i + '" data-table="active">' + headers[i] + arrow + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < page.length; i++) {
+        var sp = page[i];
+        var sclass = statusBadge[sp.derived_status] || '';
+        var pclass = priorityBadge[sp.derived_priority] || '';
+        var st = sclass ? '<span class="badge ' + sclass + '">' + ec(sp.derived_status) + '</span>' : '—';
+        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
+        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
+        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + esc(sp.category_name) + '</td>';
+        h += '<td>' + esc(sp.due_date) + '</td><td>' + esc(sp.in_charge_name) + '</td>';
+        h += '<td>' + st + '</td><td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += _paginatorHtml('active', totalPages);
+    container.innerHTML = h;
+}
+
+function _paginatorHtml(key, total) {
+    var s = tblState[key];
+    if (total <= 1) return '';
+    var h = '<div class="paginator" data-table="' + key + '">';
+    h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="prev">&laquo; Prev</a> ';
+    var maxBtns = 5;
+    var startPage = Math.max(0, s.p - Math.floor(maxBtns / 2));
+    var endPage = Math.min(total, startPage + maxBtns);
+    if (endPage - startPage < maxBtns) startPage = Math.max(0, endPage - maxBtns);
+    if (startPage > 0) {
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="0">1</a> ';
+        if (startPage > 1) h += '<span class="pag-dots">...</span> ';
+    }
+    for (var i = startPage; i < endPage; i++) {
+        var active = i === s.p ? ' class="pag-active"' : '';
+        h += '<a href="#" class="pag-btn' + (i === s.p ? ' pag-active' : '') + '" data-table="' + key + '" data-page="' + i + '">' + (i + 1) + '</a> ';
+    }
+    if (endPage < total) {
+        if (endPage < total - 1) h += '<span class="pag-dots">...</span> ';
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="' + (total - 1) + '">' + total + '</a> ';
+    }
+    h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="next">Next &raquo;</a>';
+    h += '</div>';
+    return h;
+}
+
+function _handleTblInput(e) {
+    var input = e.target;
+    if (!input.classList.contains('tbl-search')) return;
+    var key = input.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].fl = input.value;
+    tblState[key].p = 0;
+    if (key === 'dueWeek') _renderDueWeek();
+    else if (key === 'overdue') _renderOverdue();
+    else if (key === 'active') _renderActive();
+}
+
+function _handleTblSort(e) {
+    var th = e.target.closest('.sortable');
+    if (!th) return;
+    var key = th.dataset.table;
+    if (!tblState[key]) return;
+    var col = parseInt(th.dataset.sortCol);
+    var s = tblState[key];
+    if (s.sc === col) s.sd = s.sd === 'asc' ? 'desc' : 'asc';
+    else { s.sc = col; s.sd = 'asc'; }
+    s.p = 0;
+    if (key === 'dueWeek') _renderDueWeek();
+    else if (key === 'overdue') _renderOverdue();
+    else if (key === 'active') _renderActive();
+}
+
+function _handlePagClick(e) {
+    var a = e.target.closest('.pag-btn');
+    if (!a) return;
+    e.preventDefault();
+    var key = a.dataset.table;
+    if (!tblState[key]) return;
+    var s = tblState[key];
+    var pageStr = a.dataset.page;
+    if (pageStr === 'prev') s.p = Math.max(0, s.p - 1);
+    else if (pageStr === 'next') s.p = s.p + 1;
+    else s.p = parseInt(pageStr);
+    if (key === 'dueWeek') _renderDueWeek();
+    else if (key === 'overdue') _renderOverdue();
+    else if (key === 'active') _renderActive();
 }
 
 function updateCards(d) {
     var cards = document.querySelectorAll('#cards-container .card-number');
     if (!cards.length) return;
     var keys = ['total','open','in_progress','on_hold_suspended','completed','overdue'];
-    for (var i = 0; i < keys.length && i < cards.length; i++) {
+    for (var i = 0; i < keys.length && i < cards.length; i++)
         cards[i].textContent = d.counts[keys[i]] || 0;
-    }
 }
 
-function updateDueTable(containerId, items, isWeek) {
-    var container = document.getElementById(containerId);
+function updateDueToday(d) {
+    var container = document.getElementById('due-today-container');
     if (!container) return;
-    if (!items || !items.length) {
-        container.innerHTML = '';
-        return;
-    }
-    var color = isWeek ? '#856404' : '#be1e28';
-    var label = isWeek ? 'Due This Week' : 'Due Today';
-    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:' + color + ';margin-bottom:8px;">' + label + '</h3><div class="table-wrap" style="margin-bottom:12px;"><table><thead><tr><th>Task</th><th>Sub-Program</th>' + (isWeek ? '<th>Due</th>' : '') + '<th>Priority</th></tr></thead><tbody>';
+    var items = d.due_today || [];
+    if (!items.length) { container.innerHTML = ''; return; }
+    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:#be1e28;margin-bottom:8px;">Due Today</h3>';
+    h += '<div class="table-wrap" style="margin-bottom:12px;"><table><thead><tr><th>Task</th><th>Sub-Program</th><th>Priority</th></tr></thead><tbody>';
     for (var i = 0; i < items.length; i++) {
         var t = items[i];
-        var pri = ec(t.priority || 'medium');
         var pclass = priorityBadge[t.priority] || 'badge-med';
         h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + t.sub_id + '\'">';
-        h += '<td><strong>' + ec(t.title) + '</strong></td><td>' + ec(t.sub_title) + '</td>';
-        if (isWeek) h += '<td>' + ec(t.due_date || '') + '</td>';
-        h += '<td><span class="badge ' + pclass + '">' + pri + '</span></td></tr>';
+        h += '<td><strong>' + ec(t.title) + '</strong></td><td>' + esc(t.sub_title) + '</td>';
+        h += '<td><span class="badge ' + pclass + '">' + ec(t.priority || 'medium') + '</span></td></tr>';
     }
     h += '</tbody></table></div></div>';
     container.innerHTML = h;
-}
-
-function updateOverdue(d) {
-    var container = document.getElementById('overdue-container');
-    if (!container) return;
-    var rows = d.overdue_subs || [];
-    if (!rows.length) {
-        container.innerHTML = '';
-        return;
-    }
-    var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3><div class="table-wrap" style="margin-bottom:24px;"><table><thead><tr><th>Title</th><th>Category</th><th>Due</th><th>In-Charge</th><th>Priority</th><th>Tasks</th></tr></thead><tbody>';
-    for (var i = 0; i < rows.length; i++) {
-        var sp = rows[i];
-        var pclass = priorityBadge[sp.derived_priority] || '';
-        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
-        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
-        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + ec(sp.category_name || '') + '</td>';
-        h += '<td style="color:#be1e28;">' + ec(sp.due_date || '') + '</td><td>' + ec(sp.in_charge_name || '—') + '</td>';
-        h += '<td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
-    }
-    h += '</tbody></table></div>';
-    container.innerHTML = h;
-}
-
-function updateActive(d) {
-    var container = document.getElementById('active-container');
-    if (!container) return;
-    var rows = d.active_subs || [];
-    if (!rows.length) {
-        container.innerHTML = '<p style="color:#999;">No active sub-programs.</p>';
-        return;
-    }
-    var table = container.querySelector('table');
-    var oldTbody = table ? table.querySelector('tbody') : null;
-    var h = '<div class="table-wrap"><table id="activeTable"><thead><tr><th onclick="sortActive(0)">Title \u2195</th><th onclick="sortActive(1)">Category \u2195</th><th onclick="sortActive(2)">Due \u2195</th><th onclick="sortActive(3)">In-Charge \u2195</th><th onclick="sortActive(4)">Status \u2195</th><th onclick="sortActive(5)">Priority \u2195</th><th onclick="sortActive(6)">Tasks \u2195</th></tr></thead><tbody>';
-    for (var i = 0; i < rows.length; i++) {
-        var sp = rows[i];
-        var sclass = statusBadge[sp.derived_status] || '';
-        var pclass = priorityBadge[sp.derived_priority] || '';
-        var st = sclass ? '<span class="badge ' + sclass + '">' + ec(sp.derived_status) + '</span>' : '—';
-        var pri = pclass ? '<span class="badge ' + pclass + '">' + ec(sp.derived_priority) + '</span>' : '—';
-        h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + sp.id + '\'">';
-        h += '<td><strong>' + ec(sp.title) + '</strong></td><td>' + ec(sp.category_name || '') + '</td>';
-        h += '<td>' + ec(sp.due_date || '—') + '</td><td>' + ec(sp.in_charge_name || '—') + '</td>';
-        h += '<td>' + st + '</td><td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
-    }
-    h += '</tbody></table></div>';
-    container.innerHTML = h;
-    applyActiveState();
 }
 
 function updateSchedule(d) {
     var el = document.querySelector('#schedule-container > div');
     if (!el) return;
     var items = d.schedule || [];
-    if (!items.length) {
-        el.innerHTML = '<p style="color:#999;">No upcoming items.</p>';
-        return;
-    }
+    if (!items.length) { el.innerHTML = '<p style="color:#999;">No upcoming items.</p>'; return; }
     var h = '';
     for (var i = 0; i < items.length; i++) {
         var item = items[i];
         h += '<div class="schedule-item"><div class="schedule-title">';
-        if (item.source === 'sub_program') {
+        if (item.source === 'sub_program')
             h += '<a href="/programs/sub/' + item.id + '">' + ec(item.title) + '</a>';
-        } else {
+        else
             h += '<a href="#" onclick="showEventDetail(' + item.id + ');return false;">' + ec(item.title) + '</a>';
-        }
         h += '</div><div class="schedule-meta">';
         h += '<span class="schedule-date">' + ec(item.event_date ? item.event_date.slice(0,10) : '') + '</span>';
         h += ' <span class="badge badge-med">' + ec(item.type_flag || '') + '</span></div></div>';
@@ -192,77 +324,40 @@ function updateChart(d) {
     window.dashChart.update('none');
 }
 
-function applyActiveState() {
-    var q = document.getElementById('activeSearch');
-    if (q && q.value) filterActiveTable();
-    var table = document.getElementById('activeTable');
-    if (table && table.dataset.sortCol !== undefined) {
-        var col = parseInt(table.dataset.sortCol);
-        var dir = table.dataset.sortDir || 'asc';
-        sortActive(col, true);
-    }
-}
-
 function fetchDashboardData() {
     fetch('/dashboard/data')
         .then(function(r) { return r.json(); })
         .then(function(d) {
             updateCards(d);
-            updateDueTable('due-today-container', d.due_today, false);
-            updateDueTable('due-week-container', d.due_this_week, true);
-            updateOverdue(d);
-            updateActive(d);
+            updateDueToday(d);
+            tblState.dueWeek.data = d.due_this_week || [];
+            tblState.overdue.data = d.overdue_subs || [];
+            tblState.active.data = d.active_subs || [];
+            // Clamp pages
+            ['dueWeek','overdue','active'].forEach(function(k) {
+                var maxP = Math.ceil(tblState[k].data.length / tblState[k].ps) || 1;
+                if (tblState[k].p >= maxP) tblState[k].p = Math.max(0, maxP - 1);
+            });
+            _renderDueWeek();
+            _renderOverdue();
+            _renderActive();
             updateSchedule(d);
             updateChart(d);
         })
         .catch(function(e) { console.warn('Dashboard refresh failed', e); });
 }
 
-function filterActiveTable() {
-    var q = document.getElementById('activeSearch');
-    if (!q) return;
-    var val = q.value.toLowerCase();
-    var rows = document.querySelectorAll('#activeTable tbody tr');
-    rows.forEach(function(r) { r.style.display = r.textContent.toLowerCase().includes(val) ? '' : 'none'; });
-    document.getElementById('activeTable').dataset.filter = val;
-}
-
-function sortActive(col, skipToggle) {
-    var table = document.getElementById('activeTable');
-    if (!table) return;
-    var tbody = table.querySelector('tbody');
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-    if (!skipToggle) {
-        var dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
-        table.dataset.sortDir = dir;
-    }
-    var dir = table.dataset.sortDir || 'asc';
-    table.dataset.sortCol = col;
-    rows.sort(function(a, b) {
-        var va = a.cells[col].textContent.trim();
-        var vb = b.cells[col].textContent.trim();
-        if (!isNaN(parseFloat(va))) return (parseFloat(va) - parseFloat(vb)) * (dir === 'asc' ? 1 : -1);
-        return va.localeCompare(vb) * (dir === 'asc' ? 1 : -1);
-    });
-    rows.forEach(function(r) { tbody.appendChild(r); });
-}
-
 function showEventDetail(eventId) {
     fetch('/calendar/event/' + eventId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            var title = data.title || 'Event';
-            var date = data.date || '—';
-            var type = data.type_flag || '—';
-            var sub = data.sub_program_title || '—';
-            var notes = (data.notes || '').replace(/</g,'&lt;').replace(/\n/g,'<br>');
             var html = '<div id="eventModal" class="modal" style="display:block;"><div class="modal-content" style="max-width:420px;">';
             html += '<span class="modal-close" onclick="closeEventModal()">&times;</span>';
-            html += '<h3 style="margin-bottom:12px;">' + ec(title) + '</h3>';
-            html += '<table style="width:100%;"><tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Date</td><td style="padding:4px 0;">' + ec(date) + '</td></tr>';
-            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Type</td><td style="padding:4px 0;">' + ec(type) + '</td></tr>';
-            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Sub-Program</td><td style="padding:4px 0;">' + ec(sub) + '</td></tr>';
-            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Notes</td><td style="padding:4px 0;white-space:pre-wrap;">' + notes + '</td></tr></table>';
+            html += '<h3 style="margin-bottom:12px;">' + ec(data.title || 'Event') + '</h3>';
+            html += '<table style="width:100%;"><tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Date</td><td style="padding:4px 0;">' + esc(data.date) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Type</td><td style="padding:4px 0;">' + esc(data.type_flag) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Sub-Program</td><td style="padding:4px 0;">' + esc(data.sub_program_title) + '</td></tr>';
+            html += '<tr><td style="font-weight:600;padding:4px 8px 4px 0;width:80px;color:#555;">Notes</td><td style="padding:4px 0;white-space:pre-wrap;">' + (data.notes || '').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</td></tr></table>';
             html += '<div class="form-actions" style="margin-top:16px;"><button type="button" class="btn btn-outline" onclick="closeEventModal()">Close</button></div></div></div>';
             var ph = document.getElementById('event-modal-placeholder');
             if (ph) ph.innerHTML = html;
@@ -275,6 +370,15 @@ function closeEventModal() {
     if (ph) ph.innerHTML = '';
 }
 
+// Event delegation
+document.getElementById('due-week-container').addEventListener('input', _handleTblInput);
+document.getElementById('due-week-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
+document.getElementById('overdue-container').addEventListener('input', _handleTblInput);
+document.getElementById('overdue-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
+document.getElementById('active-container').addEventListener('input', _handleTblInput);
+document.getElementById('active-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
+
+// Chart
 var counts = {{ chart_counts|tojson }};
 var ctx = document.getElementById('statusChart');
 if (ctx) {

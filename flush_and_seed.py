@@ -86,12 +86,20 @@ def seed_from_xlsx():
 
             if sp_freq == "weekly":
                 due = next_sunday.isoformat()
+            elif sp_freq == "bi_weekly":
+                due = (today + timedelta(days=14)).isoformat()
             elif sp_freq == "monthly":
                 due = first_of_next_month.isoformat()
             elif sp_freq == "quarterly":
                 due = first_of_next_quarter.isoformat()
+            elif sp_freq == "annual":
+                try:
+                    next_ann = date(today.year + 1, today.month, today.day)
+                except ValueError:
+                    next_ann = date(today.year + 1, today.month, 28)
+                due = next_ann.isoformat()
             else:
-                due = (today + timedelta(days=7)).isoformat()
+                due = None
 
             cat_id = cat_lookup.get(cat_name)
             if not cat_id:

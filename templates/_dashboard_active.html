@@ -1,14 +1,17 @@
 {% if active_subs %}
+<div style="margin-bottom:8px;">
+    <input type="text" class="search-input tbl-search" data-table="active" placeholder="Search active sub-programs..." value="">
+</div>
 <div class="table-wrap">
     <table id="activeTable">
         <thead><tr>
-            <th onclick="sortActive(0)">Title ↕</th>
-            <th onclick="sortActive(1)">Category ↕</th>
-            <th onclick="sortActive(2)">Due ↕</th>
-            <th onclick="sortActive(3)">In-Charge ↕</th>
-            <th onclick="sortActive(4)">Status ↕</th>
-            <th onclick="sortActive(5)">Priority ↕</th>
-            <th onclick="sortActive(6)">Tasks ↕</th>
+            <th class="sortable" data-sort-col="0" data-table="active">Title ↕</th>
+            <th class="sortable" data-sort-col="1" data-table="active">Category ↕</th>
+            <th class="sortable" data-sort-col="2" data-table="active">Due ↕</th>
+            <th class="sortable" data-sort-col="3" data-table="active">In-Charge ↕</th>
+            <th class="sortable" data-sort-col="4" data-table="active">Status ↕</th>
+            <th class="sortable" data-sort-col="5" data-table="active">Priority ↕</th>
+            <th class="sortable" data-sort-col="6" data-table="active">Tasks ↕</th>
         </tr></thead>
         <tbody>
             {% for sp in active_subs %}
@@ -25,6 +28,7 @@
         </tbody>
     </table>
 </div>
+<div class="paginator" data-table="active"></div>
 {% else %}
 <p style="color:#999;">No active sub-programs.</p>
 {% endif %}
