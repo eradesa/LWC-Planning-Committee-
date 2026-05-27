@@ -114,7 +114,7 @@ def seed_from_xlsx():
             print(f"  Sub-program: {name} ({sp_freq}) due {due}")
 
         elif flag == "Task" and name and current_sp is not None:
-            task_due = None
+            task_due = due
             m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', name)
             if m:
                 try:
