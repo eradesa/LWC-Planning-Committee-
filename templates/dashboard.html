@@ -72,48 +72,57 @@ function ec(v) { var d = document.createElement('div'); d.textContent = v == nul
 function esc(v) { return v == null ? '—' : ec(v); }
 
 var tblState = {
-    dueWeek:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'dueWeek' },
-    overdue:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'overdue' },
-    active:   { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[], key:'active'  }
+    dueWeek:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[],
+                keys:['sub_title','task_count','due_date','priority'] },
+    overdue:  { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[],
+                keys:['title','category_name','due_date','in_charge_name','derived_priority','task_count'] },
+    active:   { p:0, ps:10, sc:0, sd:'asc', fl:'', data:[],
+                keys:['title','category_name','due_date','in_charge_name','derived_status','derived_priority','task_count'] }
 };
+var prioRank = { low:0, medium:1, high:2, critical:3 };
 
 function _filter(s) {
     if (!s.fl) return s.data.slice();
     var f = s.fl.toLowerCase();
     return s.data.filter(function(r) {
-        return Object.values(r).some(function(v) {
+        return s.keys.some(function(k) {
+            var v = r[k];
             return String(v == null ? '' : v).toLowerCase().includes(f);
         });
     });
 }
 
-function _sort(rows, sc, sd) {
+function _sort(rows, s) {
+    var col = s.keys[s.sc];
     return rows.slice().sort(function(a, b) {
-        var va = a[a.keys ? a.keys[sc] : ''] || '';
-        var vb = b[a.keys ? b.keys[sc] : ''] || '';
+        var va = a[col], vb = b[col];
+        if (va == null) va = ''; if (vb == null) vb = '';
         va = String(va).trim(); vb = String(vb).trim();
-        if (!isNaN(parseFloat(va)) && !isNaN(parseFloat(vb)))
-            return (parseFloat(va) - parseFloat(vb)) * (sd === 'asc' ? 1 : -1);
-        return va.localeCompare(vb) * (sd === 'asc' ? 1 : -1);
+        var na = parseFloat(va), nb = parseFloat(vb);
+        if (!isNaN(na) && !isNaN(nb))
+            return (na - nb) * (s.sd === 'asc' ? 1 : -1);
+        return va.localeCompare(vb) * (s.sd === 'asc' ? 1 : -1);
     });
 }
 
 function _renderDueWeek() {
     var s = tblState.dueWeek;
-    var container = document.getElementById('due-week-container');
-    if (!container) return;
+    var el = document.getElementById('due-week-container');
+    if (!el) return;
     var all = _filter(s);
-    if (!all.length) { container.innerHTML = ''; return; }
-    var sorted = _sort(all, s.sc, s.sd);
+    if (!all.length) { el.innerHTML = ''; return; }
+    var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
-    if (s.p >= totalPages) s.p = totalPages - 1;
+    if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
-    var color = '#856404';
-    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:' + color + ';margin-bottom:8px;">Due This Week</h3>';
-    h += '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search due this week..." value="' + esc(s.fl) + '"></div>';
+    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:#856404;margin-bottom:8px;">Due This Week</h3>';
+    h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
+    h += '<input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
+    h += _perPageSelect('dueWeek');
+    h += '</div>';
     h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
-    var headers = ['Title','Sub-Program','Due','Priority'];
+    var headers = ['Sub-Program','Tasks Due','Due Date','Priority'];
     for (var i = 0; i < headers.length; i++) {
         var arrow = i === s.sc ? (s.sd === 'asc' ? ' \u2191' : ' \u2193') : ' \u2195';
         h += '<th class="sortable" data-sort-col="' + i + '" data-table="dueWeek">' + headers[i] + arrow + '</th>';
@@ -123,29 +132,32 @@ function _renderDueWeek() {
         var t = page[i];
         var pclass = priorityBadge[t.priority] || 'badge-med';
         h += '<tr class="clickable" onclick="window.location=\'/programs/sub/' + t.sub_id + '\'">';
-        h += '<td><strong>' + ec(t.title) + '</strong></td><td>' + esc(t.sub_title) + '</td>';
+        h += '<td><strong>' + ec(t.sub_title) + '</strong></td><td>' + t.task_count + '</td>';
         h += '<td>' + esc(t.due_date) + '</td>';
         h += '<td><span class="badge ' + pclass + '">' + ec(t.priority || 'medium') + '</span></td></tr>';
     }
     h += '</tbody></table></div>';
-    h += _paginatorHtml('dueWeek', totalPages);
+    h += _paginatorHtml('dueWeek', totalPages, sorted.length);
     h += '</div>';
-    container.innerHTML = h;
+    el.innerHTML = h;
 }
 
 function _renderOverdue() {
     var s = tblState.overdue;
-    var container = document.getElementById('overdue-container');
-    if (!container) return;
+    var el = document.getElementById('overdue-container');
+    if (!el) return;
     var all = _filter(s);
-    if (!all.length) { container.innerHTML = ''; return; }
-    var sorted = _sort(all, s.sc, s.sd);
+    if (!all.length) { el.innerHTML = ''; return; }
+    var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
-    if (s.p >= totalPages) s.p = totalPages - 1;
+    if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
     var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3>';
-    h += '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="overdue" placeholder="Search overdue sub-programs..." value="' + esc(s.fl) + '"></div>';
+    h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
+    h += '<input type="text" class="search-input tbl-search" data-table="overdue" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
+    h += _perPageSelect('overdue');
+    h += '</div>';
     h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
     var headers = ['Title','Category','Due','In-Charge','Priority','Tasks'];
     for (var i = 0; i < headers.length; i++) {
@@ -163,22 +175,25 @@ function _renderOverdue() {
         h += '<td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
     }
     h += '</tbody></table></div>';
-    h += _paginatorHtml('overdue', totalPages);
-    container.innerHTML = h;
+    h += _paginatorHtml('overdue', totalPages, sorted.length);
+    el.innerHTML = h;
 }
 
 function _renderActive() {
     var s = tblState.active;
-    var container = document.getElementById('active-container');
-    if (!container) return;
+    var el = document.getElementById('active-container');
+    if (!el) return;
     var all = _filter(s);
-    if (!all.length) { container.innerHTML = '<p style="color:#999;">No active sub-programs.</p>'; return; }
-    var sorted = _sort(all, s.sc, s.sd);
+    if (!all.length) { el.innerHTML = '<p style="color:#999;">No active sub-programs.</p>'; return; }
+    var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
-    if (s.p >= totalPages) s.p = totalPages - 1;
+    if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
-    var h = '<div style="margin-bottom:8px;"><input type="text" class="search-input tbl-search" data-table="active" placeholder="Search active sub-programs..." value="' + esc(s.fl) + '"></div>';
+    var h = '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
+    h += '<input type="text" class="search-input tbl-search" data-table="active" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
+    h += _perPageSelect('active');
+    h += '</div>';
     h += '<div class="table-wrap"><table id="activeTable"><thead><tr>';
     var headers = ['Title','Category','Due','In-Charge','Status','Priority','Tasks'];
     for (var i = 0; i < headers.length; i++) {
@@ -198,33 +213,46 @@ function _renderActive() {
         h += '<td>' + st + '</td><td>' + pri + '</td><td>' + (sp.task_count || 0) + '</td></tr>';
     }
     h += '</tbody></table></div>';
-    h += _paginatorHtml('active', totalPages);
-    container.innerHTML = h;
+    h += _paginatorHtml('active', totalPages, sorted.length);
+    el.innerHTML = h;
 }
 
-function _paginatorHtml(key, total) {
+function _perPageSelect(key) {
     var s = tblState[key];
-    if (total <= 1) return '';
+    var opts = [5, 10, 25, 50];
+    var h = '<select class="per-page" data-table="' + key + '">';
+    for (var i = 0; i < opts.length; i++) {
+        var sel = opts[i] === s.ps ? ' selected' : '';
+        h += '<option value="' + opts[i] + '"' + sel + '>' + opts[i] + '</option>';
+    }
+    h += '</select>';
+    return h;
+}
+
+function _paginatorHtml(key, total, count) {
+    var s = tblState[key];
+    if (total <= 1 && s.p === 0) return '';
     var h = '<div class="paginator" data-table="' + key + '">';
-    h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="prev">&laquo; Prev</a> ';
+    h += '<span class="pag-info">' + count + ' items</span>';
+    h += '<div class="pag-btns">';
+    h += '<a href="#" class="pag-btn' + (s.p === 0 ? ' pag-disabled' : '') + '" data-table="' + key + '" data-page="prev">&laquo; Prev</a>';
     var maxBtns = 5;
     var startPage = Math.max(0, s.p - Math.floor(maxBtns / 2));
     var endPage = Math.min(total, startPage + maxBtns);
     if (endPage - startPage < maxBtns) startPage = Math.max(0, endPage - maxBtns);
     if (startPage > 0) {
-        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="0">1</a> ';
-        if (startPage > 1) h += '<span class="pag-dots">...</span> ';
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="0">1</a>';
+        if (startPage > 1) h += '<span class="pag-dots">...</span>';
     }
     for (var i = startPage; i < endPage; i++) {
-        var active = i === s.p ? ' class="pag-active"' : '';
-        h += '<a href="#" class="pag-btn' + (i === s.p ? ' pag-active' : '') + '" data-table="' + key + '" data-page="' + i + '">' + (i + 1) + '</a> ';
+        h += '<a href="#" class="pag-btn' + (i === s.p ? ' pag-active' : '') + '" data-table="' + key + '" data-page="' + i + '">' + (i + 1) + '</a>';
     }
     if (endPage < total) {
-        if (endPage < total - 1) h += '<span class="pag-dots">...</span> ';
-        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="' + (total - 1) + '">' + total + '</a> ';
+        if (endPage < total - 1) h += '<span class="pag-dots">...</span>';
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="' + (total - 1) + '">' + total + '</a>';
     }
-    h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="next">Next &raquo;</a>';
-    h += '</div>';
+    h += '<a href="#" class="pag-btn' + (s.p >= total - 1 ? ' pag-disabled' : '') + '" data-table="' + key + '" data-page="next">Next &raquo;</a>';
+    h += '</div></div>';
     return h;
 }
 
@@ -258,17 +286,45 @@ function _handleTblSort(e) {
 function _handlePagClick(e) {
     var a = e.target.closest('.pag-btn');
     if (!a) return;
+    if (a.classList.contains('pag-disabled')) return;
     e.preventDefault();
     var key = a.dataset.table;
     if (!tblState[key]) return;
     var s = tblState[key];
+    var totalItems = s.data.length;
+    var maxP = Math.max(1, Math.ceil(totalItems / s.ps));
     var pageStr = a.dataset.page;
     if (pageStr === 'prev') s.p = Math.max(0, s.p - 1);
-    else if (pageStr === 'next') s.p = s.p + 1;
-    else s.p = parseInt(pageStr);
+    else if (pageStr === 'next') s.p = Math.min(maxP - 1, s.p + 1);
+    else s.p = Math.min(parseInt(pageStr), maxP - 1);
     if (key === 'dueWeek') _renderDueWeek();
     else if (key === 'overdue') _renderOverdue();
     else if (key === 'active') _renderActive();
+}
+
+function _handlePerPage(e) {
+    var sel = e.target;
+    if (!sel.classList.contains('per-page')) return;
+    var key = sel.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].ps = parseInt(sel.value);
+    tblState[key].p = 0;
+    if (key === 'dueWeek') _renderDueWeek();
+    else if (key === 'overdue') _renderOverdue();
+    else if (key === 'active') _renderActive();
+}
+
+function _groupDueWeek(tasks) {
+    var g = {};
+    (tasks || []).forEach(function(t) {
+        if (!g[t.sub_id]) {
+            g[t.sub_id] = { sub_id:t.sub_id, sub_title:t.sub_title, due_date:t.due_date, priority:t.priority, task_count:0 };
+        }
+        g[t.sub_id].task_count++;
+        if (prioRank[t.priority] > prioRank[g[t.sub_id].priority])
+            g[t.sub_id].priority = t.priority;
+    });
+    return Object.values(g);
 }
 
 function updateCards(d) {
@@ -330,10 +386,9 @@ function fetchDashboardData() {
         .then(function(d) {
             updateCards(d);
             updateDueToday(d);
-            tblState.dueWeek.data = d.due_this_week || [];
+            tblState.dueWeek.data = _groupDueWeek(d.due_this_week);
             tblState.overdue.data = d.overdue_subs || [];
             tblState.active.data = d.active_subs || [];
-            // Clamp pages
             ['dueWeek','overdue','active'].forEach(function(k) {
                 var maxP = Math.ceil(tblState[k].data.length / tblState[k].ps) || 1;
                 if (tblState[k].p >= maxP) tblState[k].p = Math.max(0, maxP - 1);
@@ -370,15 +425,15 @@ function closeEventModal() {
     if (ph) ph.innerHTML = '';
 }
 
-// Event delegation
-document.getElementById('due-week-container').addEventListener('input', _handleTblInput);
-document.getElementById('due-week-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
-document.getElementById('overdue-container').addEventListener('input', _handleTblInput);
-document.getElementById('overdue-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
-document.getElementById('active-container').addEventListener('input', _handleTblInput);
-document.getElementById('active-container').addEventListener('click', function(e) { _handleTblSort(e); _handlePagClick(e); });
+function _delegator(e) { _handleTblSort(e); _handlePagClick(e); _handlePerPage(e); }
 
-// Chart
+document.getElementById('due-week-container').addEventListener('input', _handleTblInput);
+document.getElementById('due-week-container').addEventListener('click', _delegator);
+document.getElementById('overdue-container').addEventListener('input', _handleTblInput);
+document.getElementById('overdue-container').addEventListener('click', _delegator);
+document.getElementById('active-container').addEventListener('input', _handleTblInput);
+document.getElementById('active-container').addEventListener('click', _delegator);
+
 var counts = {{ chart_counts|tojson }};
 var ctx = document.getElementById('statusChart');
 if (ctx) {

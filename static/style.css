@@ -422,13 +422,72 @@ footer {
     padding-top: 60px;
     flex: 1;
 }
+/* ─── PAGINATOR ──────────────────────────────── */
+.paginator {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0 4px;
+    font-size: 13px;
+}
+.pag-info { color: #888; white-space: nowrap; }
+.pag-btns { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.pag-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    background: #fff;
+    border: 1px solid #d0d0d0;
+    border-radius: 5px;
+    color: #333;
+    text-decoration: none;
+    font-size: 12px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.pag-btn:hover { background: #eef3f8; border-color: #1a3a5c; }
+.pag-active {
+    background: #1a3a5c;
+    border-color: #1a3a5c;
+    color: #fff;
+    font-weight: 600;
+}
+.pag-active:hover { background: #14304e; }
+.pag-disabled { opacity: 0.4; pointer-events: none; }
+.pag-dots { color: #999; font-size: 12px; padding: 0 2px; }
+
+.per-page {
+    padding: 4px 6px;
+    border: 1px solid #d0d0d0;
+    border-radius: 5px;
+    font-size: 12px;
+    background: #fff;
+    cursor: pointer;
+    min-width: 52px;
+}
+.per-page:focus { outline: none; border-color: #1a3a5c; }
+
+/* ─── AUTH ───────────────────────────────────── */
 .auth-card {
     background: #fff;
-    border-radius: 8px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.1);
-    padding: 28px 32px 24px;
-    width: 100%;
-    max-width: 380px;
+    padding: 24px;
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    max-width: 360px;
+    margin: 40px auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.auth-card .form-actions { margin-top: 16px; }
+.auth-card .form-actions .btn { width: 100%; padding: 8px; font-size: 13px; }
+.auth-link {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: #888;
 }
 .auth-card h2 {
     font-size: 18px;
