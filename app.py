@@ -1846,8 +1846,8 @@ def _backup_sub_programs_zip(zf, conn):
             else:
                 row.extend(["", "", "", ""])
         w.writerow(row)
-    si.close()
     zf.writestr("sub_programs.csv", si.getvalue().encode("utf-8"))
+    si.close()
 
 
 # ─── Bootstrap ───────────────────────────────────────────
