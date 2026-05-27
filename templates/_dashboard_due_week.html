@@ -2,21 +2,21 @@
 <div class="due-section" style="margin-bottom:20px;">
     <h3 style="font-size:16px;color:#856404;margin-bottom:8px;">Due This Week</h3>
     <div style="margin-bottom:8px;">
-        <input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search due this week..." value="">
+        <input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search..." value="">
     </div>
     <div class="table-wrap" style="margin-bottom:8px;">
         <table>
             <thead><tr>
-                <th class="sortable" data-sort-col="0" data-table="dueWeek">Title ↕</th>
-                <th class="sortable" data-sort-col="1" data-table="dueWeek">Sub-Program ↕</th>
-                <th class="sortable" data-sort-col="2" data-table="dueWeek">Due ↕</th>
+                <th class="sortable" data-sort-col="0" data-table="dueWeek">Sub-Program ↕</th>
+                <th class="sortable" data-sort-col="1" data-table="dueWeek">Tasks Due ↕</th>
+                <th class="sortable" data-sort-col="2" data-table="dueWeek">Due Date ↕</th>
                 <th class="sortable" data-sort-col="3" data-table="dueWeek">Priority ↕</th>
             </tr></thead>
             <tbody>
                 {% for t in due_this_week %}
                 <tr class="clickable" onclick="window.location='{{ url_for('sub_program_detail', sub_id=t.sub_id) }}'">
-                    <td><strong>{{ t.title }}</strong></td>
-                    <td>{{ t.sub_title }}</td>
+                    <td><strong>{{ t.sub_title }}</strong></td>
+                    <td></td>
                     <td>{{ t.due_date }}</td>
                     <td><span class="badge {{ priority_color(t.priority) }}">{{ t.priority }}</span></td>
                 </tr>

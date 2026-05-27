@@ -28,7 +28,8 @@ from models import (
     get_all_sub_programs_with_status, get_sub_program_counts,
     get_sub_program_derived, get_linkable_sub_programs,
     get_overdue_sub_programs, get_active_sub_programs,
-    get_tasks, get_task, add_task, update_task, update_task_status, delete_task,
+    get_tasks, get_task, add_task, update_task, update_task_status,
+    delete_task, delete_all_sub_program_tasks,
     get_task_updates as _get_task_updates, add_task_update,
     get_events, get_event, add_event, update_event, delete_event,
     get_calendar_entries, get_calendar_entries_from_date,
@@ -44,7 +45,21 @@ app = Flask(__name__)
 app.json = _JSONProvider(app)
 
 app.secret_key = os.environ.get("CHMS_SECRET_KEY", "chms-secret-key")
-app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v1.2.0")
+_today_str = date.today().strftime("%Y%m%d")
+_build_path = os.path.join(os.path.dirname(__file__), "build.json")
+if os.path.exists(_build_path):
+    with open(_build_path) as _bf:
+        _build_data = json.load(_bf)
+    if _build_data.get("date") == _today_str:
+        _build_data["build"] += 1
+    else:
+        _build_data.update({"date": _today_str, "build": 1})
+else:
+    _build_data = {"date": _today_str, "build": 1}
+_build_file = open(_build_path, "w")
+json.dump(_build_data, _build_file)
+_build_file.close()
+app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v." + _today_str + "." + f"{_build_data['build']:03d}")
 
 LAST_RECURRENCE_CHECK = None
 
@@ -96,6 +111,7 @@ def inject_current_user():
 
 
 from functools import wraps
+import json
 
 
 def login_required(f):
@@ -682,6 +698,18 @@ def task_delete(tid):
     delete_task(tid)
     flash("Task deleted", "success")
     return redirect(url_for("sub_program_detail", sub_id=task["sub_program_id"]))
+
+
+@app.route("/programs/sub/<int:sub_id>/tasks/delete_all", methods=["POST"])
+@require_write
+def sub_program_delete_all_tasks(sub_id):
+    sub = get_sub_program(sub_id)
+    if not sub:
+        flash("Sub-program not found", "error")
+        return redirect(url_for("programs_landing"))
+    delete_all_sub_program_tasks(sub_id)
+    flash("All tasks deleted", "success")
+    return redirect(url_for("sub_program_detail", sub_id=sub_id))
 
 
 @app.route("/tasks/<int:tid>/duplicate", methods=["POST"])

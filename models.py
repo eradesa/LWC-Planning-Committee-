@@ -648,6 +648,13 @@ def delete_task(task_id):
     conn.close()
 
 
+def delete_all_sub_program_tasks(sub_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM tasks WHERE sub_program_id=%s", (sub_id,))
+    conn.commit()
+    conn.close()
+
+
 # ─── Task Updates ────────────────────────────────────────
 
 def get_due_reminders():

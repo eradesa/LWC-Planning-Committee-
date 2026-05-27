@@ -223,6 +223,11 @@
 
             <div class="sidebar-card" style="margin-top:16px;">
                 <h3>Danger Zone</h3>
+                {% if tasks %}
+                <form method="POST" action="{{ url_for('sub_program_delete_all_tasks', sub_id=sub.id) }}" style="margin-bottom:8px;" onsubmit="return confirm('Delete ALL tasks for this sub-program? This cannot be undone.');">
+                    <button type="submit" class="btn btn-red">Delete All Tasks ({{ tasks|length }})</button>
+                </form>
+                {% endif %}
                 <button type="button" class="btn btn-red" data-confirm-delete="{{ url_for('sub_program_delete', sub_id=sub.id) }}" data-confirm-message="Delete sub-program '{{ sub.title }}'? This cannot be undone.">Delete Sub-Program</button>
             </div>
     </div>
