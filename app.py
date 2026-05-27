@@ -44,7 +44,7 @@ app = Flask(__name__)
 app.json = _JSONProvider(app)
 
 app.secret_key = os.environ.get("CHMS_SECRET_KEY", "chms-secret-key")
-app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v.dev")
+app.config["APP_VERSION"] = os.environ.get("APP_VERSION", "v1.2.0")
 
 LAST_RECURRENCE_CHECK = None
 
