@@ -356,6 +356,8 @@ def update_sub_program(sub_id, category_id, title, description, due_date,
                        in_charge_id, recurring_type, add_to_calendar, type_flag, notes,
                        recurring_by="date", recurring_weekday=None, recurring_ordinal=None):
     conn = get_conn()
+    old = conn.execute("SELECT due_date FROM sub_programs WHERE id=%s", (sub_id,)).fetchone()
+    old_due = old["due_date"] if old else None
     conn.execute("""
         UPDATE sub_programs SET
             program_category_id=%s, title=%s, description=%s, due_date=%s,
@@ -368,6 +370,11 @@ def update_sub_program(sub_id, category_id, title, description, due_date,
           in_charge_id or None, recurring_type, 1 if add_to_calendar else 0,
           type_flag, notes.strip(),
           recurring_by, recurring_weekday, recurring_ordinal, sub_id))
+    if due_date != old_due:
+        conn.execute(
+            "UPDATE tasks SET due_date=%s WHERE sub_program_id=%s AND due_date=%s",
+            (due_date or None, sub_id, old_due),
+        )
     conn.commit()
     conn.close()
 

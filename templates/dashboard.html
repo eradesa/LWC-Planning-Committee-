@@ -105,22 +105,33 @@ function _sort(rows, s) {
     });
 }
 
+var _activeSearchTable = null;
+
+function _searchBarHtml(key) {
+    var s = tblState[key];
+    var h = '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
+    h += '<input type="search" class="search-input tbl-search" data-table="' + key + '" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
+    h += _perPageSelect(key);
+    if (s.fl) h += '<button type="button" class="btn btn-sm btn-outline tbl-clear" data-table="' + key + '" title="Clear filter">✕</button>';
+    h += '</div>';
+    return h;
+}
+
 function _renderDueWeek() {
     var s = tblState.dueWeek;
     var el = document.getElementById('due-week-container');
     if (!el) return;
+    var ae = document.activeElement;
+    if (ae && ae.classList.contains('tbl-search')) _activeSearchTable = ae.dataset.table;
     var all = _filter(s);
-    if (!all.length) { el.innerHTML = ''; return; }
+    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:#856404;margin-bottom:8px;">Due This Week</h3>';
+    h += _searchBarHtml('dueWeek');
+    if (!all.length) { h += '<p style="color:#999;">No results found. Try a different search.</p>'; el.innerHTML = h; return; }
     var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
     if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
-    var h = '<div class="due-section" style="margin-bottom:20px;"><h3 style="font-size:16px;color:#856404;margin-bottom:8px;">Due This Week</h3>';
-    h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
-    h += '<input type="text" class="search-input tbl-search" data-table="dueWeek" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
-    h += _perPageSelect('dueWeek');
-    h += '</div>';
     h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
     var headers = ['Sub-Program','Tasks Due','Due Date','Priority'];
     for (var i = 0; i < headers.length; i++) {
@@ -140,24 +151,28 @@ function _renderDueWeek() {
     h += _paginatorHtml('dueWeek', totalPages, sorted.length);
     h += '</div>';
     el.innerHTML = h;
+    if (_activeSearchTable === 'dueWeek') {
+        var inp = el.querySelector('.tbl-search[data-table="dueWeek"]');
+        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        _activeSearchTable = null;
+    }
 }
 
 function _renderOverdue() {
     var s = tblState.overdue;
     var el = document.getElementById('overdue-container');
     if (!el) return;
+    var ae = document.activeElement;
+    if (ae && ae.classList.contains('tbl-search')) _activeSearchTable = ae.dataset.table;
     var all = _filter(s);
-    if (!all.length) { el.innerHTML = ''; return; }
+    var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3>';
+    h += _searchBarHtml('overdue');
+    if (!all.length) { h += '<p style="color:#999;">No results found. Try a different search.</p>'; el.innerHTML = h; return; }
     var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
     if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
-    var h = '<h3 style="font-size:16px;color:#be1e28;margin-bottom:12px;">Overdue Sub-Programs</h3>';
-    h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
-    h += '<input type="text" class="search-input tbl-search" data-table="overdue" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
-    h += _perPageSelect('overdue');
-    h += '</div>';
     h += '<div class="table-wrap" style="margin-bottom:8px;"><table><thead><tr>';
     var headers = ['Title','Category','Due','In-Charge','Priority','Tasks'];
     for (var i = 0; i < headers.length; i++) {
@@ -177,23 +192,28 @@ function _renderOverdue() {
     h += '</tbody></table></div>';
     h += _paginatorHtml('overdue', totalPages, sorted.length);
     el.innerHTML = h;
+    if (_activeSearchTable === 'overdue') {
+        var inp = el.querySelector('.tbl-search[data-table="overdue"]');
+        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        _activeSearchTable = null;
+    }
 }
 
 function _renderActive() {
     var s = tblState.active;
     var el = document.getElementById('active-container');
     if (!el) return;
+    var ae = document.activeElement;
+    if (ae && ae.classList.contains('tbl-search')) _activeSearchTable = ae.dataset.table;
     var all = _filter(s);
-    if (!all.length) { el.innerHTML = '<p style="color:#999;">No active sub-programs.</p>'; return; }
+    var h = '';
+    h += _searchBarHtml('active');
+    if (!all.length) { h += '<p style="color:#999;">No active sub-programs found. Try a different search.</p>'; el.innerHTML = h; return; }
     var sorted = _sort(all, s);
     var totalPages = Math.ceil(sorted.length / s.ps) || 1;
     if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
     var start = s.p * s.ps;
     var page = sorted.slice(start, start + s.ps);
-    var h = '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
-    h += '<input type="text" class="search-input tbl-search" data-table="active" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
-    h += _perPageSelect('active');
-    h += '</div>';
     h += '<div class="table-wrap"><table id="activeTable"><thead><tr>';
     var headers = ['Title','Category','Due','In-Charge','Status','Priority','Tasks'];
     for (var i = 0; i < headers.length; i++) {
@@ -215,6 +235,11 @@ function _renderActive() {
     h += '</tbody></table></div>';
     h += _paginatorHtml('active', totalPages, sorted.length);
     el.innerHTML = h;
+    if (_activeSearchTable === 'active') {
+        var inp = el.querySelector('.tbl-search[data-table="active"]');
+        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        _activeSearchTable = null;
+    }
 }
 
 function _perPageSelect(key) {
@@ -308,6 +333,18 @@ function _handlePerPage(e) {
     var key = sel.dataset.table;
     if (!tblState[key]) return;
     tblState[key].ps = parseInt(sel.value);
+    tblState[key].p = 0;
+    if (key === 'dueWeek') _renderDueWeek();
+    else if (key === 'overdue') _renderOverdue();
+    else if (key === 'active') _renderActive();
+}
+
+function _handleTblClear(e) {
+    var btn = e.target.closest('.tbl-clear');
+    if (!btn) return;
+    var key = btn.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].fl = '';
     tblState[key].p = 0;
     if (key === 'dueWeek') _renderDueWeek();
     else if (key === 'overdue') _renderOverdue();
@@ -425,7 +462,7 @@ function closeEventModal() {
     if (ph) ph.innerHTML = '';
 }
 
-function _delegator(e) { _handleTblSort(e); _handlePagClick(e); _handlePerPage(e); }
+function _delegator(e) { _handleTblSort(e); _handlePagClick(e); _handlePerPage(e); _handleTblClear(e); }
 
 document.getElementById('due-week-container').addEventListener('input', _handleTblInput);
 document.getElementById('due-week-container').addEventListener('click', _delegator);

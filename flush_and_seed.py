@@ -38,6 +38,13 @@ def next_weekday(d, weekday):
     return d + timedelta(days=days_ahead)
 
 
+SEED_MEMBERS = [
+    "PASTOR DINUSHA", "PASTOR PRASAD", "PASTOR SHAMIKA",
+    "PASTOR DINESH", "ROCHELLE", "SACHA", "ANITA",
+    "SUREN", "YOHAN", "THERIKA", "RAJITH",
+]
+
+
 def seed_from_xlsx():
     today = date.today()
     next_sunday = next_weekday(today, 6)
@@ -49,8 +56,11 @@ def seed_from_xlsx():
 
     q = (today.month - 1) // 3
     first_of_next_quarter = date(today.year, (q + 1) * 3 + 1, 1)
-    if (today.month - 1) // 3 != (today.month) // 3:
-        pass
+
+    for mn in SEED_MEMBERS:
+        add_member(mn, "Member", "", "")
+    all_members = get_members()
+    print(f"  Seeded {len(all_members)} members")
 
     wb = openpyxl.load_workbook(XLSX_PATH)
     ws = wb.active

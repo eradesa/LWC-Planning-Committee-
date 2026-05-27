@@ -5,29 +5,224 @@
     <a href="{{ url_for('member_add') }}" class="btn btn-primary">Add Member</a>
 </div>
 
+<div id="members-container">
 {% if members %}
-<div class="table-wrap">
-    <table>
-        <thead><tr>
-            <th>Name</th><th>Designation</th><th>Phone</th><th>Email</th><th class="actions">Actions</th>
-        </tr></thead>
-        <tbody>
-            {% for m in members %}
-            <tr>
-                <td><strong>{{ m.name }}</strong></td>
-                <td>{{ m.designation or '—' }}</td>
-                <td>{{ m.phone or '—' }}</td>
-                <td>{{ m.email or '—' }}</td>
-                <td class="actions">
-                    <a href="{{ url_for('member_edit', mid=m.id) }}" class="btn btn-sm btn-outline">Edit</a>
-                    <button type="button" class="btn btn-sm btn-red" data-confirm-delete="{{ url_for('member_delete', mid=m.id) }}" data-confirm-message="Delete {{ m.name }}? This will clear their references from sub-programs and tasks.">Delete</button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+<div class="table-wrap"><table><thead><tr>
+    <th>Name</th><th>Designation</th><th>Phone</th><th>Email</th><th class="actions">Actions</th>
+</tr></thead><tbody>
+    {% for m in members %}
+    <tr>
+        <td><strong>{{ m.name }}</strong></td>
+        <td>{{ m.designation or '—' }}</td>
+        <td>{{ m.phone or '—' }}</td>
+        <td>{{ m.email or '—' }}</td>
+        <td class="actions">
+            <a href="{{ url_for('member_edit', mid=m.id) }}" class="btn btn-sm btn-outline">Edit</a>
+            <button type="button" class="btn btn-sm btn-red" data-confirm-delete="{{ url_for('member_delete', mid=m.id) }}" data-confirm-message="Delete {{ m.name }}? This will clear their references from sub-programs and tasks.">Delete</button>
+        </td>
+    </tr>
+    {% endfor %}
+</tbody></table></div>
 {% else %}
 <p style="color:#999;">No members yet. <a href="{{ url_for('member_add') }}">Add one</a>.</p>
 {% endif %}
+</div>
+
+<script>
+var MEMBER_DATA = {{ members | tojson | safe }};
+
+function ec(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+function esc(v) { return v == null ? '—' : ec(v); }
+
+var tblState = {
+    members: { p:0, ps:10, sc:0, sd:'asc', fl:'', data:MEMBER_DATA,
+               keys:['name','designation','phone','email'] }
+};
+var _activeSearchTable = null;
+
+function _filter(s) {
+    if (!s.fl) return s.data.slice();
+    var f = s.fl.toLowerCase();
+    return s.data.filter(function(r) {
+        return s.keys.some(function(k) {
+            var v = r[k];
+            return String(v == null ? '' : v).toLowerCase().includes(f);
+        });
+    });
+}
+
+function _sort(rows, s) {
+    var col = s.keys[s.sc];
+    return rows.slice().sort(function(a, b) {
+        var va = a[col], vb = b[col];
+        if (va == null) va = ''; if (vb == null) vb = '';
+        va = String(va).trim(); vb = String(vb).trim();
+        var na = parseFloat(va), nb = parseFloat(vb);
+        if (!isNaN(na) && !isNaN(nb))
+            return (na - nb) * (s.sd === 'asc' ? 1 : -1);
+        return va.localeCompare(vb) * (s.sd === 'asc' ? 1 : -1);
+    });
+}
+
+function _perPageSelect(key) {
+    var s = tblState[key];
+    var opts = [5, 10, 25, 50];
+    var h = '<select class="per-page" data-table="' + key + '">';
+    for (var i = 0; i < opts.length; i++) {
+        var sel = opts[i] === s.ps ? ' selected' : '';
+        h += '<option value="' + opts[i] + '"' + sel + '>' + opts[i] + '</option>';
+    }
+    h += '</select>';
+    return h;
+}
+
+function _paginatorHtml(key, total, count) {
+    var s = tblState[key];
+    if (total <= 1 && s.p === 0) return '';
+    var h = '<div class="paginator" data-table="' + key + '">';
+    h += '<span class="pag-info">' + count + ' items</span>';
+    h += '<div class="pag-btns">';
+    h += '<a href="#" class="pag-btn' + (s.p === 0 ? ' pag-disabled' : '') + '" data-table="' + key + '" data-page="prev">&laquo; Prev</a>';
+    var maxBtns = 5;
+    var startPage = Math.max(0, s.p - Math.floor(maxBtns / 2));
+    var endPage = Math.min(total, startPage + maxBtns);
+    if (endPage - startPage < maxBtns) startPage = Math.max(0, endPage - maxBtns);
+    if (startPage > 0) {
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="0">1</a>';
+        if (startPage > 1) h += '<span class="pag-dots">...</span>';
+    }
+    for (var i = startPage; i < endPage; i++) {
+        h += '<a href="#" class="pag-btn' + (i === s.p ? ' pag-active' : '') + '" data-table="' + key + '" data-page="' + i + '">' + (i + 1) + '</a>';
+    }
+    if (endPage < total) {
+        if (endPage < total - 1) h += '<span class="pag-dots">...</span>';
+        h += '<a href="#" class="pag-btn" data-table="' + key + '" data-page="' + (total - 1) + '">' + total + '</a>';
+    }
+    h += '<a href="#" class="pag-btn' + (s.p >= total - 1 ? ' pag-disabled' : '') + '" data-table="' + key + '" data-page="next">Next &raquo;</a>';
+    h += '</div></div>';
+    return h;
+}
+
+function _renderMembers() {
+    var s = tblState.members;
+    var el = document.getElementById('members-container');
+    if (!el) return;
+    var ae = document.activeElement;
+    if (ae && ae.classList.contains('tbl-search')) _activeSearchTable = ae.dataset.table;
+    var all = _filter(s);
+    if (!all.length) {
+        el.innerHTML = '<p style="color:#999;">No members found.</p>';
+        return;
+    }
+    var sorted = _sort(all, s);
+    var totalPages = Math.ceil(sorted.length / s.ps) || 1;
+    if (s.p >= totalPages) s.p = Math.max(0, totalPages - 1);
+    var start = s.p * s.ps;
+    var page = sorted.slice(start, start + s.ps);
+    var h = '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">';
+    h += '<input type="search" class="search-input tbl-search" data-table="members" placeholder="Search..." value="' + esc(s.fl) + '" style="flex:1;">';
+    h += _perPageSelect('members');
+    if (s.fl) h += '<button type="button" class="btn btn-sm btn-outline tbl-clear" data-table="members" title="Clear filter">✕</button>';
+    h += '</div>';
+    h += '<div class="table-wrap"><table><thead><tr>';
+    var headers = ['Name','Designation','Phone','Email'];
+    for (var i = 0; i < headers.length; i++) {
+        var arrow = i === s.sc ? (s.sd === 'asc' ? ' \u2191' : ' \u2193') : ' \u2195';
+        h += '<th class="sortable" data-sort-col="' + i + '" data-table="members">' + headers[i] + arrow + '</th>';
+    }
+    h += '<th class="actions">Actions</th>';
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < page.length; i++) {
+        var m = page[i];
+        h += '<tr>';
+        h += '<td><strong>' + ec(m.name) + '</strong></td>';
+        h += '<td>' + esc(m.designation) + '</td>';
+        h += '<td>' + esc(m.phone) + '</td>';
+        h += '<td>' + esc(m.email) + '</td>';
+        h += '<td class="actions">';
+        h += '<a href="/members/' + m.id + '/edit" class="btn btn-sm btn-outline">Edit</a>';
+        h += '<button type="button" class="btn btn-sm btn-red" data-confirm-delete="/members/' + m.id + '/delete" data-confirm-message="Delete ' + ec(m.name) + '? This will clear their references from sub-programs and tasks.">Delete</button>';
+        h += '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += _paginatorHtml('members', totalPages, sorted.length);
+    el.innerHTML = h;
+    if (_activeSearchTable === 'members') {
+        var inp = el.querySelector('.tbl-search[data-table="members"]');
+        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        _activeSearchTable = null;
+    }
+}
+
+function _handleTblInput(e) {
+    var input = e.target;
+    if (!input.classList.contains('tbl-search')) return;
+    var key = input.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].fl = input.value;
+    tblState[key].p = 0;
+    if (key === 'members') _renderMembers();
+}
+
+function _handleTblSort(e) {
+    var th = e.target.closest('.sortable');
+    if (!th) return;
+    var key = th.dataset.table;
+    if (!tblState[key]) return;
+    var col = parseInt(th.dataset.sortCol);
+    var s = tblState[key];
+    if (s.sc === col) s.sd = s.sd === 'asc' ? 'desc' : 'asc';
+    else { s.sc = col; s.sd = 'asc'; }
+    s.p = 0;
+    if (key === 'members') _renderMembers();
+}
+
+function _handlePagClick(e) {
+    var a = e.target.closest('.pag-btn');
+    if (!a) return;
+    if (a.classList.contains('pag-disabled')) return;
+    e.preventDefault();
+    var key = a.dataset.table;
+    if (!tblState[key]) return;
+    var s = tblState[key];
+    var totalItems = s.data.length;
+    var maxP = Math.max(1, Math.ceil(totalItems / s.ps));
+    var pageStr = a.dataset.page;
+    if (pageStr === 'prev') s.p = Math.max(0, s.p - 1);
+    else if (pageStr === 'next') s.p = Math.min(maxP - 1, s.p + 1);
+    else s.p = Math.min(parseInt(pageStr), maxP - 1);
+    if (key === 'members') _renderMembers();
+}
+
+function _handlePerPage(e) {
+    var sel = e.target;
+    if (!sel.classList.contains('per-page')) return;
+    var key = sel.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].ps = parseInt(sel.value);
+    tblState[key].p = 0;
+    if (key === 'members') _renderMembers();
+}
+
+function _handleTblClear(e) {
+    var btn = e.target.closest('.tbl-clear');
+    if (!btn) return;
+    var key = btn.dataset.table;
+    if (!tblState[key]) return;
+    tblState[key].fl = '';
+    tblState[key].p = 0;
+    if (key === 'members') _renderMembers();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    _renderMembers();
+    document.getElementById('members-container').addEventListener('input', _handleTblInput);
+    document.getElementById('members-container').addEventListener('click', function(e) {
+        _handleTblSort(e);
+        _handlePagClick(e);
+        _handleTblClear(e);
+    });
+    document.getElementById('members-container').addEventListener('change', _handlePerPage);
+});
+</script>
 {% endblock %}
